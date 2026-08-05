@@ -24,19 +24,19 @@ metadata:
 ### 1. Bot Configuration
 - The Telegram bot token can be resolved from macOS Keychain (preferred) or `~/.hermes/.env` (legacy).
 - **Keychain storage (macOS only, most secure):**
-  Service name: `hermes-agent`, Account: `TELEGRAM_BOT_TOKEN`
+  Service name: `TELEGRAM_BOT_TOKEN`, Account: `$USER` (your macOS username)
 
   ```sh
   # Store once (replace with your real @BotFather token):
-  security add-generic-password -a TELEGRAM_BOT_TOKEN -s hermes-agent \
+  security add-generic-password -a "$USER" -s TELEGRAM_BOT_TOKEN \
       -w "YOUR_BOT_TOKEN_HERE" -T /usr/bin/security
 
   # Verify:
-  security find-generic-password -s hermes-agent -a TELEGRAM_BOT_TOKEN -w
+  security find-generic-password -s TELEGRAM_BOT_TOKEN -a "$USER" -w
 
   # Update later:
-  security delete-generic-password -a TELEGRAM_BOT_TOKEN -s hermes-agent 2>/dev/null
-  security add-generic-password -a TELEGRAM_BOT_TOKEN -s hermes-agent \
+  security delete-generic-password -a "$USER" -s TELEGRAM_BOT_TOKEN 2>/dev/null
+  security add-generic-password -a "$USER" -s TELEGRAM_BOT_TOKEN \
       -w "NEW_TOKEN" -T /usr/bin/security
   ```
 
@@ -46,7 +46,7 @@ metadata:
     command:
       enabled: true
       override_existing: false
-      command: printf TELEGRAM_BOT_TOKEN=%s "$(security find-generic-password -s hermes-agent -a TELEGRAM_BOT_TOKEN -w)"
+      command: printf TELEGRAM_BOT_TOKEN=%s "$(security find-generic-password -s TELEGRAM_BOT_TOKEN -a "$USER" -w)"
   ```
 
   At every gateway startup, this runs the `security` lookup and hydrates `TELEGRAM_BOT_TOKEN` into `os.environ` via Hermes' built-in `secrets.command` secret source — **zero core code changes required**. On non-macOS, the command degrades gracefully (logs a warning, resolves empty) and you fall back to `.env`.
@@ -72,7 +72,7 @@ metadata:
 - Check connection: `cat ~/.hermes/gateway_state.json`
 
 ### 4. Troubleshooting
-- "Token not found" / "No bot token configured" = the keychain entry is missing or `secrets.command` isn't enabled. Verify with: `security find-generic-password -s hermes-agent -a TELEGRAM_BOT_TOKEN -w` and check `~/.hermes/config.yaml` → `secrets.command.enabled: true`.
+- "Token not found" / "No bot token configured" = the keychain entry is missing or `secrets.command` isn't enabled. Verify with: `security find-generic-password -s TELEGRAM_BOT_TOKEN -a "$USER" -w` and check `~/.hermes/config.yaml` → `secrets.command.enabled: true`.
 - "Token rejected" = bot token is invalid or corrupted (re-store in keychain).
 - "Blocked unauthorized user" = user ID not in `TELEGRAM_ALLOWED_USERS`.
 - "Chat not found" = bot hasn't been started by the user yet.
@@ -95,7 +95,7 @@ metadata:
 - Never write placeholder values (like `***`) to `.env` — use `hermes config set`
 - Bot must be started by the user before it can receive messages
 - Chat IDs are numeric (positive for DMs, negative for groups)
-- The bot token should live in macOS Keychain (service `hermes-agent`, account `TELEGRAM_BOT_TOKEN`), NOT in `.env`. Store it via the `security add-generic-password` command in §1 — the secret never passes through Hermes or chat.
+- The bot token should live in macOS Keychain (service `TELEGRAM_BOT_TOKEN`, account `$USER`), NOT in `.env`. Store it via the `security add-generic-password` command in §1 — the secret never passes through Hermes or chat.
 - `secrets.command.enabled` must be `true` in `~/.hermes/config.yaml` for the keychain token to hydrate into the environment at startup.
 - The `secrets.command` source is POSIX-only (`/bin/sh`). It degrades gracefully on non-macOS — you'd need a different helper command there.
 - The token was **never** in `~/.hermes/.env` to begin with (only `TELEGRAM_ALLOWED_USERS` and `TELEGRAM_HOME_CHANNEL` live there) — nothing needed removing from `.env`.
