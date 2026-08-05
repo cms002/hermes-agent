@@ -463,3 +463,133 @@ class TestWeatherOnelineWithUnitSystem:
         assert parsed["status"] == "ok"
         assert parsed["unit_system"] == "f"
         assert "75°F" in parsed["content"]
+
+
+class TestPersistentUnitSystem:
+    """Tests for the persistent unit_system preference."""
+
+    def test_resolve_unit_system_with_explicit_value(self):
+        """Explicit unit_system parameter takes priority over persistent config."""
+        assert weather_module._resolve_unit_system("c") == "c"
+        assert weather_module._resolve_unit_system("f") == "f"
+        assert weather_module._resolve_unit_system("both") == "both"
+
+    def test_resolve_unit_system_none_falls_back_to_config(self):
+        """When unit_system is None, fall back to persistent config."""
+        with patch("tools.weather_in._get_persistent_unit_system", return_value="f"):
+            assert weather_module._resolve_unit_system(None) == "f"
+
+    def test_resolve_unit_system_empty_falls_back_to_config(self):
+        """When unit_system is empty string, fall back to persistent config."""
+        with patch("tools.weather_in._get_persistent_unit_system", return_value="c"):
+            assert weather_module._resolve_unit_system("") == "c"
+
+    def test_get_persistent_unit_system_default(self):
+        """Default persistent unit_system is 'both' when config is unavailable."""
+        with patch("builtins.__import__", side_effect=ImportError("No module")):
+            assert weather_module._get_persistent_unit_system() == "both"
+
+    def test_resolve_unit_system_explicit_overrides_persistent(self):
+        """Explicit unit_system overrides persistent config."""
+        with patch("tools.weather_in._get_persistent_unit_system", return_value="f"):
+            # Explicit 'c' should override persistent 'f'
+            assert weather_module._resolve_unit_system("c") == "c"
+
+    @patch("tools.weather_in._get_persistent_unit_system", return_value="c")
+    @patch("tools.weather_in._fetch_weather")
+    def test_weather_current_uses_persistent_config(self, mock_fetch, _mock_persistent):
+        """weather_current uses persistent config when no unit_system provided."""
+        mock_fetch.return_value = {
+            "status": "ok",
+            "content": json.dumps({
+                "current_condition": [{
+                    "temp_C": "24",
+                    "temp_F": "75",
+                    "humidity": "31",
+                }]
+            }),
+            "content_type": "application/json",
+            "url": "https://wttr.in/London?format=j1&m",
+        }
+
+        result = weather_module.weather_current({
+            "location": "London",
+            "format": "j1",
+            # unit_system NOT provided - should use persistent config ("c")
+        })
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        current = parsed["data"]["current_condition"][0]
+        assert current["temp_C"] == "24"
+        assert "temp_F" not in current  # Should be filtered out
+
+    @patch("tools.weather_in._get_persistent_unit_system", return_value="f")
+    @patch("tools.weather_in._fetch_weather")
+    def test_weather_current_per_request_overrides_persistent(self, mock_fetch, _mock_persistent):
+        """weather_current per-request unit_system overrides persistent config."""
+        mock_fetch.return_value = {
+            "status": "ok",
+            "content": json.dumps({
+                "current_condition": [{
+                    "temp_C": "24",
+                    "temp_F": "75",
+                    "humidity": "31",
+                }]
+            }),
+            "content_type": "application/json",
+            "url": "https://wttr.in/London?format=j1&m",
+        }
+
+        result = weather_module.weather_current({
+            "location": "London",
+            "format": "j1",
+            "unit_system": "f",
+        })
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        current = parsed["data"]["current_condition"][0]
+        assert current["temp_F"] == "75"
+        assert "temp_C" not in current
+
+
+class TestWeatherSetPreference:
+    """Tests for the set_weather_preference tool."""
+
+    @patch("tools.weather_in._get_persistent_unit_system", return_value="c")
+    @patch("hermes_cli.config.save_config")
+    @patch("hermes_cli.config.load_config")
+    def test_set_preference_celsius(self, mock_load, mock_save, _mock_persistent):
+        mock_load.return_value = {"weather": {"unit_system": "f"}}
+        result = weather_module.set_weather_preference({"unit_system": "c"})
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["unit_system"] == "c"
+        mock_save.assert_called_once()
+
+    @patch("tools.weather_in._get_persistent_unit_system", return_value="f")
+    @patch("hermes_cli.config.save_config")
+    @patch("hermes_cli.config.load_config")
+    def test_set_preference_fahrenheit(self, mock_load, mock_save, _mock_persistent):
+        mock_load.return_value = {"weather": {"unit_system": "c"}}
+        result = weather_module.set_weather_preference({"unit_system": "f"})
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["unit_system"] == "f"
+        mock_save.assert_called_once()
+
+    def test_set_preference_invalid(self):
+        result = weather_module.set_weather_preference({"unit_system": "invalid"})
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"
+        assert "Invalid unit_system" in parsed["error"]
+
+
+class TestWeatherGetPreference:
+    """Tests for the get_weather_preference tool."""
+
+    def test_get_preference_default(self):
+        with patch("tools.weather_in._get_persistent_unit_system", return_value="both"):
+            result = weather_module.get_weather_preference({})
+            parsed = json.loads(result)
+            assert parsed["status"] == "ok"
+            assert parsed["unit_system"] == "both"

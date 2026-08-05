@@ -15,6 +15,8 @@ Available tools:
 - weather_moon: Get moon phase information for a date
 - weather_prometheus: Get weather data as Prometheus metrics
 - weather_help: Get help information about wttr.in query syntax
+- weather_set_preference: Set a persistent unit_system preference (c/f/both)
+- weather_get_preference: Get the current persistent unit_system preference
 
 Usage examples:
     # Current weather in JSON format
@@ -34,6 +36,10 @@ Usage examples:
 
     # Forecast with Fahrenheit preference
     result = weather_forecast(location="Mountain View, CA", unit_system="f")
+
+    # Set a persistent default preference (survives across requests):
+    #   hermes config set weather.unit_system=f
+    # Then all subsequent weather calls without unit_system will use Fahrenheit.
 """
 
 import json
@@ -55,6 +61,41 @@ _WTTR_TIMEOUT_SECONDS = 30
 
 # Default unit system preference: "c" (Celsius/metric), "f" (Fahrenheit/USCS), or "both"
 _DEFAULT_UNIT_SYSTEM = "both"
+
+
+def _get_persistent_unit_system() -> str:
+    """Get the persistent default unit system from config.yaml.
+
+    Reads the 'weather.unit_system' value from the Hermes config.
+    Falls back to 'both' if not set or if config is unavailable.
+
+    Returns:
+        'c' for Celsius-only, 'f' for Fahrenheit-only, or 'both' (default).
+    """
+    try:
+        from hermes_cli.config import cfg_get, load_config_readonly
+        config = load_config_readonly()
+        value = cfg_get(config, "weather", "unit_system", default="both")
+        if value in ("c", "f", "both", "s"):
+            return value
+        return "both"
+    except Exception:
+        return "both"
+
+
+def _resolve_unit_system(unit_system: Optional[str]) -> str:
+    """Resolve the effective unit_system, falling back to persistent config.
+
+    Args:
+        unit_system: Per-request unit_system parameter ('c', 'f', 'both', 's').
+                     If None or empty, falls back to persistent config default.
+
+    Returns:
+        The resolved unit_system value ('c', 'f', 'both', or 's').
+    """
+    if unit_system and unit_system in ("c", "f", "both", "s"):
+        return unit_system
+    return _get_persistent_unit_system()
 
 
 def _fetch_weather(url: str) -> Dict[str, Any]:
@@ -226,7 +267,7 @@ def weather_current(args, **kwargs) -> str:
     location = args.get("location", "")
     fmt = args.get("format", "j1")
     lang = args.get("language", "") or None
-    unit_system = args.get("unit_system", _DEFAULT_UNIT_SYSTEM)
+    unit_system = _resolve_unit_system(args.get("unit_system"))
     explicit_unit = args.get("unit", "") or None
     extra_params = args.get("extra_params", "") or None
 
@@ -253,7 +294,7 @@ def weather_current(args, **kwargs) -> str:
                 "raw_content": result["content"][:2000]
             })
 
-    # Return raw text content
+    # Return raw text content (already has unit_system in output)
     return json.dumps({
         "status": "ok",
         "content": result["content"],
@@ -273,7 +314,7 @@ def weather_forecast(args, **kwargs) -> str:
     location = args.get("location", "")
     fmt = args.get("format", "") or None
     lang = args.get("language", "") or None
-    unit_system = args.get("unit_system", _DEFAULT_UNIT_SYSTEM)
+    unit_system = _resolve_unit_system(args.get("unit_system"))
     explicit_unit = args.get("unit", "") or None
     extra_params = args.get("extra_params", "") or None
 
@@ -328,7 +369,7 @@ def weather_oneline(args, **kwargs) -> str:
     location = args.get("location", "")
     fmt = args.get("format", "3")
     lang = args.get("language", "") or None
-    unit_system = args.get("unit_system", _DEFAULT_UNIT_SYSTEM)
+    unit_system = _resolve_unit_system(args.get("unit_system"))
     explicit_unit = args.get("unit", "") or None
 
     wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
@@ -357,7 +398,7 @@ def weather_moon(args, **kwargs) -> str:
     date = args.get("date", "")
     lang = args.get("language", "") or None
     fmt = args.get("format", "") or None
-    unit_system = args.get("unit_system", _DEFAULT_UNIT_SYSTEM)
+    unit_system = _resolve_unit_system(args.get("unit_system"))
     explicit_unit = args.get("unit", "") or None
 
     if date:
@@ -462,6 +503,59 @@ def check_weather_requirements() -> bool:
         return False
 
 
+def set_weather_preference(args, **kwargs) -> str:
+    """Set a persistent weather unit_system preference.
+
+    Stores the preference in config.yaml under weather.unit_system.
+    Subsequent weather tool calls that don't specify unit_system
+    will use this persistent default. Per-request unit_system
+    parameters override this setting for that single call.
+    """
+    unit_system = args.get("unit_system", "both")
+    if unit_system not in ("c", "f", "both", "s"):
+        return json.dumps({
+            "status": "error",
+            "error": f"Invalid unit_system '{unit_system}'. Must be one of: c, f, both, s"
+        })
+
+    try:
+        from hermes_cli.config import load_config, save_config
+        config = load_config()
+        config.setdefault("weather", {})["unit_system"] = unit_system
+        save_config(config)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": f"Failed to save preference: {e}"})
+
+    return json.dumps({
+        "status": "ok",
+        "message": f"Weather unit_system preference set to '{unit_system}' (C=°C/metric, F=°F/USCS, both=default, s=scientific). "
+                   f"This persistent setting will be used for all weather tool calls "
+                   f"that don't specify a unit_system parameter.",
+        "unit_system": unit_system
+    })
+
+
+def get_weather_preference(args, **kwargs) -> str:
+    """Get the current persistent weather unit_system preference.
+
+    Reads the preference from config.yaml under weather.unit_system.
+    Returns 'both' if not set.
+    """
+    unit_system = _get_persistent_unit_system()
+
+    return json.dumps({
+        "status": "ok",
+        "unit_system": unit_system,
+        "description": (
+            "c = Celsius-only (metric), "
+            "f = Fahrenheit-only (USCS), "
+            "both = both units (default), "
+            "s = scientific"
+        ),
+        "set_command": "Use set_weather_preference(unit_system='c'|'f'|'both') to change."
+    })
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -507,8 +601,11 @@ WEATHER_CURRENT_SCHEMA = {
                 "description": (
                     "Temperature unit preference: 'c' for metric/Celsius only, "
                     "'f' for USCS/Fahrenheit only, 'both' (default) for both units. "
+                    "If not provided, falls back to the persistent default set via "
+                    "'hermes config set weather.unit_system=<c|f|both>'. "
                     "In JSON mode, this filters which temperature fields are returned. "
-                    "In text mode, it controls the wttr.in unit parameter."
+                    "In text mode, it controls the wttr.in unit parameter. "
+                    "This parameter overrides the persistent default for this request only."
                 ),
                 "default": "both",
                 "enum": ["c", "f", "both"]
@@ -564,6 +661,8 @@ WEATHER_FORECAST_SCHEMA = {
                 "description": (
                     "Temperature unit preference: 'c' for metric/Celsius only, "
                     "'f' for USCS/Fahrenheit only, 'both' (default) for both units. "
+                    "If not provided, falls back to the persistent default set via "
+                    "'hermes config set weather.unit_system=<c|f|both>'. "
                     "In JSON mode, this filters which temperature fields are returned."
                 ),
                 "default": "both",
@@ -626,7 +725,9 @@ WEATHER_ONELINE_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Temperature unit preference: 'c' for Celsius, 'f' for Fahrenheit, "
-                    "'both' (default) for wttr.in's default unit behavior."
+                    "'both' (default) for wttr.in's default unit behavior. "
+                    "If not provided, falls back to the persistent default set via "
+                    "'hermes config set weather.unit_system=<c|f|both>'."
                 ),
                 "default": "both",
                 "enum": ["c", "f", "both"]
@@ -662,7 +763,11 @@ WEATHER_MOON_SCHEMA = {
             },
             "unit_system": {
                 "type": "string",
-                "description": "Temperature unit preference: 'c', 'f', or 'both' (default).",
+                "description": (
+                    "Temperature unit preference: 'c', 'f', or 'both' (default). "
+                    "If not provided, falls back to the persistent default set via "
+                    "'hermes config set weather.unit_system=<c|f|both>'."
+                ),
                 "default": "both",
                 "enum": ["c", "f", "both"]
             }
@@ -701,6 +806,44 @@ WEATHER_HELP_SCHEMA = {
         "Get help information about wttr.in query syntax and supported options. "
         "Returns documentation on location formats, output formats, units, "
         "languages, and available query parameters."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {},
+    }
+}
+
+WEATHER_SET_PREFERENCE_SCHEMA = {
+    "name": "weather_set_preference",
+    "description": (
+        "Set a persistent weather unit_system preference in config.yaml. "
+        "This preference is used for all subsequent weather tool calls that "
+        "don't explicitly specify a unit_system parameter. "
+        "Use 'c' for Celsius-only, 'f' for Fahrenheit-only, or 'both' (default) "
+        "for both units. Per-request unit_system parameters override this setting."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "unit_system": {
+                "type": "string",
+                "description": (
+                    "The persistent unit preference: 'c' for Celsius/metric, "
+                    "'f' for Fahrenheit/USCS, 'both' for both units (default), "
+                    "'s' for scientific."
+                ),
+                "default": "both",
+                "enum": ["c", "f", "both", "s"]
+            }
+        },
+    }
+}
+
+WEATHER_GET_PREFERENCE_SCHEMA = {
+    "name": "weather_get_preference",
+    "description": (
+        "Get the current persistent weather unit_system preference from config.yaml. "
+        "Returns the saved preference or 'both' if none has been set."
     ),
     "parameters": {
         "type": "object",
@@ -777,4 +920,24 @@ registry.register(
     check_fn=check_weather_requirements,
     requires_env=[],
     emoji="❔",
+)
+
+registry.register(
+    name="weather_set_preference",
+    toolset="web",
+    schema=WEATHER_SET_PREFERENCE_SCHEMA,
+    handler=set_weather_preference,
+    check_fn=lambda: True,
+    requires_env=[],
+    emoji="⚙️",
+)
+
+registry.register(
+    name="weather_get_preference",
+    toolset="web",
+    schema=WEATHER_GET_PREFERENCE_SCHEMA,
+    handler=get_weather_preference,
+    check_fn=lambda: True,
+    requires_env=[],
+    emoji="ⓘ",
 )

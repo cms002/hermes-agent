@@ -88,6 +88,7 @@ _HERMES_CORE_TOOLS = [
     # Weather information via wttr.in
     "weather_current", "weather_forecast", "weather_oneline",
     "weather_moon", "weather_prometheus", "weather_help",
+    "weather_set_preference", "weather_get_preference",
 ]
 
 # Webhook events may originate from untrusted third-party content (for example,
@@ -468,6 +469,7 @@ TOOLSETS = {
             # Weather information via wttr.in
             "weather_current", "weather_forecast", "weather_oneline",
             "weather_moon", "weather_prometheus", "weather_help",
+            "weather_set_preference", "weather_get_preference",
 
         ],
         "includes": []
