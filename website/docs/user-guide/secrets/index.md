@@ -6,6 +6,7 @@ Supported:
 
 - [Bitwarden Secrets Manager](./bitwarden) — `bws` CLI, lazy-installed, free tier works.
 - [1Password](./onepassword) — `op://` references via the official `op` CLI; service-account or desktop session auth.
+- [OS Keyring](./keyring) — macOS Keychain (`security`), Windows Credential Manager (`cmdkey`/PowerShell), Linux Secret Service (`secret-tool`) or `pass`.
 - [Command helper](./command) — any CLI vault (`keepassxc-cli`, `secret-tool`, `pass`, custom scripts) via a user-configured helper that prints `KEY=VALUE` lines.
 
 ## Multiple sources at once
@@ -47,4 +48,4 @@ Both apply to every source — bundled and plugin — because they live in the o
 
 Third-party secret managers ship as standalone plugins, not core PRs. A backend subclasses `agent.secret_sources.base.SecretSource` (one required method: `fetch(cfg, home_path) -> FetchResult`) and registers via `ctx.register_secret_source(MySource())` in the plugin's `register(ctx)`. The orchestrator owns precedence, conflict handling, timeouts, and provenance — your source only fetches. Full guide with the contract rules, subprocess-safety helper, and conformance kit: [Building a Secret Source Plugin](/developer-guide/secret-source-plugin).
 
-The bundled set is deliberately closed (same policy as memory providers): Bitwarden and 1Password ship in-tree. Everything else — Infisical, Proton Pass, HashiCorp Vault, AWS Secrets Manager, OS keystores — belongs in plugin repos; share them in the Nous Research Discord (`#plugins-skills-and-skins`).
+The bundled set is deliberately closed (same policy as memory providers): Bitwarden, 1Password, the command helper, and the OS keyring source ship in-tree. Everything else — Infisical, Proton Pass, HashiCorp Vault, AWS Secrets Manager — belongs in plugin repos; share them in the Nous Research Discord (`#plugins-skills-and-skins`).
