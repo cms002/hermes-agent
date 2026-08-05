@@ -37,9 +37,11 @@ Usage examples:
     # Forecast with Fahrenheit preference
     result = weather_forecast(location="Mountain View, CA", unit_system="f")
 
-    # Set a persistent default preference (survives across requests):
+    # Set persistent default preferences (survive across requests):
     #   hermes config set weather.unit_system=f
-    # Then all subsequent weather calls without unit_system will use Fahrenheit.
+    #   hermes config set weather.graphics=m
+    #   hermes config set weather.detail=l
+    # Then all subsequent weather calls will use those defaults.
 """
 
 import json
@@ -61,6 +63,12 @@ _WTTR_TIMEOUT_SECONDS = 30
 
 # Default unit system preference: "c" (Celsius/metric), "f" (Fahrenheit/USCS), or "both"
 _DEFAULT_UNIT_SYSTEM = "both"
+
+# Default graphics size preference: "s" (small), "m" (medium), "l" (large)
+_DEFAULT_GRAPHICS = "m"
+
+# Default detail level preference: "s" (small), "m" (medium), "l" (large)
+_DEFAULT_DETAIL = "m"
 
 
 def _get_persistent_unit_system() -> str:
@@ -96,6 +104,154 @@ def _resolve_unit_system(unit_system: Optional[str]) -> str:
     if unit_system and unit_system in ("c", "f", "both", "s"):
         return unit_system
     return _get_persistent_unit_system()
+
+
+def _get_persistent_graphics() -> str:
+    """Get the persistent graphics size preference from config.yaml.
+
+    Reads the 'weather.graphics' value from the Hermes config.
+    Falls back to 'm' (medium) if not set or if config is unavailable.
+
+    Returns:
+        's' for small, 'm' for medium (default), or 'l' for large.
+    """
+    try:
+        from hermes_cli.config import cfg_get, load_config_readonly
+        config = load_config_readonly()
+        value = cfg_get(config, "weather", "graphics", default="m")
+        if value in ("s", "m", "l", "small", "medium", "large"):
+            # Normalize long names to short
+            if value == "small":
+                return "s"
+            elif value == "medium":
+                return "m"
+            elif value == "large":
+                return "l"
+            return value
+        return "m"
+    except Exception:
+        return "m"
+
+
+def _get_persistent_detail() -> str:
+    """Get the persistent detail level preference from config.yaml.
+
+    Reads the 'weather.detail' value from the Hermes config.
+    Falls back to 'm' (medium) if not set or if config is unavailable.
+
+    Returns:
+        's' for small, 'm' for medium (default), or 'l' for large.
+    """
+    try:
+        from hermes_cli.config import cfg_get, load_config_readonly
+        config = load_config_readonly()
+        value = cfg_get(config, "weather", "detail", default="m")
+        if value in ("s", "m", "l", "small", "medium", "large"):
+            # Normalize long names to short
+            if value == "small":
+                return "s"
+            elif value == "medium":
+                return "m"
+            elif value == "large":
+                return "l"
+            return value
+        return "m"
+    except Exception:
+        return "m"
+
+
+def _resolve_graphics(graphics: Optional[str]) -> str:
+    """Resolve the effective graphics size, falling back to persistent config.
+
+    Args:
+        graphics: Per-request graphics parameter ('s', 'm', 'l').
+                  If None or empty, falls back to persistent config default.
+
+    Returns:
+        The resolved graphics value ('s', 'm', or 'l').
+    """
+    if graphics and graphics in ("s", "m", "l", "small", "medium", "large"):
+        # Normalize long names to short
+        if graphics == "small":
+            return "s"
+        elif graphics == "medium":
+            return "m"
+        elif graphics == "large":
+            return "l"
+        return graphics
+    return _get_persistent_graphics()
+
+
+def _resolve_detail(detail: Optional[str]) -> str:
+    """Resolve the effective detail level, falling back to persistent config.
+
+    Args:
+        detail: Per-request detail parameter ('s', 'm', 'l').
+                If None or empty, falls back to persistent config default.
+
+    Returns:
+        The resolved detail value ('s', 'm', or 'l').
+    """
+    if detail and detail in ("s", "m", "l", "small", "medium", "large"):
+        # Normalize long names to short
+        if detail == "small":
+            return "s"
+        elif detail == "medium":
+            return "m"
+        elif detail == "large":
+            return "l"
+        return detail
+    return _get_persistent_detail()
+
+
+def _resolve_text_format(fmt: Optional[str], detail: str) -> Optional[str]:
+    """Resolve the output format for text-based queries.
+
+    Maps the detail level to appropriate wttr.in format options:
+    - 's' (small): format=1 (minimal one-line) or format=2 (condition + temp)
+    - 'm' (medium): default text output (full ANSI forecast)
+    - 'l' (large): format=j1 (full JSON with all details)
+
+    Args:
+        fmt: Explicit format parameter from the user (takes priority).
+        detail: The resolved detail level ('s', 'm', 'l').
+
+    Returns:
+        The resolved format string, or None for default text output.
+    """
+    if fmt:
+        return fmt
+    # If no explicit format is provided, use detail to determine format
+    if detail == "s":
+        return "1"  # Minimal one-line format
+    elif detail == "l":
+        return "j1"  # Full JSON with all details
+    return None  # Default: full text/ANSI output
+
+
+def _resolve_text_options(graphics: str) -> str:
+    """Resolve text output options for wttr.in based on graphics preference.
+
+    Maps the graphics size to wttr.in URL flags:
+    - 's' (small): T (plain text, no ANSI colors) + d (standard glyphs only)
+    - 'm' (medium): default (ANSI colors, standard glyphs)
+    - 'l' (large): default (ANSI colors, all glyphs)
+
+    Args:
+        graphics: The resolved graphics size ('s', 'm', 'l').
+
+    Returns:
+        String of wttr.in flags to append to the URL.
+    """
+    flags = []
+    if graphics == "s":
+        flags.append("T")  # Plain text, no ANSI
+        flags.append("d")  # Standard glyphs only
+    elif graphics == "m":
+        pass  # Default ANSI behavior
+    elif graphics == "l":
+        pass  # Default ANSI with all glyphs
+    return "".join(flags)
 
 
 def _fetch_weather(url: str) -> Dict[str, Any]:
@@ -157,7 +313,8 @@ def _fetch_weather(url: str) -> Dict[str, Any]:
 
 
 def _build_url(location: str, fmt: Optional[str] = None, lang: Optional[str] = None,
-               unit: Optional[str] = None, extra_params: Optional[str] = None) -> str:
+               unit: Optional[str] = None, extra_params: Optional[str] = None,
+               text_flags: Optional[str] = None) -> str:
     """Build a wttr.in URL with the given parameters.
 
     Args:
@@ -169,6 +326,7 @@ def _build_url(location: str, fmt: Optional[str] = None, lang: Optional[str] = N
         unit: Unit system as a bare wttr.in flag: "m" for metric, "M" for metric
               with m/s, "u" for USCS, "s" for scientific. Empty for default.
         extra_params: Additional query parameters as a string.
+        text_flags: Text output flags (e.g., "Td" for plain text + standard glyphs).
 
     Returns:
         Fully constructed wttr.in URL.
@@ -181,6 +339,9 @@ def _build_url(location: str, fmt: Optional[str] = None, lang: Optional[str] = N
     if unit:
         # wttr.in unit params are bare flags, not key=value (e.g., ?m not ?u=m)
         parts.append(unit)
+    if text_flags:
+        # Text flags like "Td" are bare flags appended directly
+        parts.append(text_flags)
     if extra_params:
         parts.append(extra_params)
 
@@ -270,10 +431,22 @@ def weather_current(args, **kwargs) -> str:
     unit_system = _resolve_unit_system(args.get("unit_system"))
     explicit_unit = args.get("unit", "") or None
     extra_params = args.get("extra_params", "") or None
+    graphics = _resolve_graphics(args.get("graphics"))
+    detail = _resolve_detail(args.get("detail"))
+
+    # Resolve format based on detail level if no explicit format given
+    if fmt == "j1":
+        # JSON format: detail level doesn't change the format, but text_flags do apply
+        pass
+    elif not fmt:
+        # No explicit format - use detail to determine format
+        fmt = _resolve_text_format(None, detail)
 
     wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
+    text_flags = _resolve_text_options(graphics) if not fmt or fmt.startswith(("1", "2", "3", "4")) else None
 
-    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None, extra_params=extra_params)
+    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None,
+                     extra_params=extra_params, text_flags=text_flags or None)
     result = _fetch_weather(url)
 
     if result["status"] == "error":
@@ -294,13 +467,15 @@ def weather_current(args, **kwargs) -> str:
                 "raw_content": result["content"][:2000]
             })
 
-    # Return raw text content (already has unit_system in output)
+    # Return raw text content
     return json.dumps({
         "status": "ok",
         "content": result["content"],
         "format": fmt,
         "location": location or "auto-detected (by IP)",
         "unit_system": unit_system,
+        "graphics": graphics,
+        "detail": detail,
         "url": result["url"]
     })
 
@@ -317,6 +492,8 @@ def weather_forecast(args, **kwargs) -> str:
     unit_system = _resolve_unit_system(args.get("unit_system"))
     explicit_unit = args.get("unit", "") or None
     extra_params = args.get("extra_params", "") or None
+    graphics = _resolve_graphics(args.get("graphics"))
+    detail = _resolve_detail(args.get("detail"))
 
     # Build extra params for forecast days if requested
     days = args.get("days")
@@ -326,9 +503,15 @@ def weather_forecast(args, **kwargs) -> str:
         else:
             extra_params = f"days={days}"
 
-    wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
+    # If no explicit format given, use detail to determine format
+    if not fmt:
+        fmt = _resolve_text_format(None, detail)
 
-    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None, extra_params=extra_params)
+    wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
+    text_flags = _resolve_text_options(graphics) if not fmt or fmt.startswith(("1", "2", "3", "4")) else None
+
+    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None,
+                     extra_params=extra_params, text_flags=text_flags or None)
     result = _fetch_weather(url)
 
     if result["status"] == "error":
@@ -354,6 +537,8 @@ def weather_forecast(args, **kwargs) -> str:
         "content": result["content"],
         "location": location or "auto-detected (by IP)",
         "unit_system": unit_system,
+        "graphics": graphics,
+        "detail": detail,
         "url": result["url"]
     })
 
@@ -365,16 +550,21 @@ def weather_oneline(args, **kwargs) -> str:
     %-notation strings. Supports multiple locations separated by colon.
     The unit_system parameter controls which unit is displayed: 'c' for
     metric (Celsius), 'f' for USCS (Fahrenheit), 'both' for default.
+    The graphics parameter controls text rendering: 's' for plain text,
+    'm' for ANSI colors (default), 'l' for full graphical.
     """
     location = args.get("location", "")
     fmt = args.get("format", "3")
     lang = args.get("language", "") or None
     unit_system = _resolve_unit_system(args.get("unit_system"))
     explicit_unit = args.get("unit", "") or None
+    graphics = _resolve_graphics(args.get("graphics"))
 
     wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
+    text_flags = _resolve_text_options(graphics) if graphics == "s" else None
 
-    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None)
+    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None,
+                     text_flags=text_flags or None)
     result = _fetch_weather(url)
 
     if result["status"] == "error":
@@ -386,6 +576,7 @@ def weather_oneline(args, **kwargs) -> str:
         "format": fmt,
         "location": location or "auto-detected (by IP)",
         "unit_system": unit_system,
+        "graphics": graphics,
         "url": result["url"]
     })
 
@@ -394,12 +585,15 @@ def weather_moon(args, **kwargs) -> str:
     """Get moon phase information for a specific date.
 
     Queries wttr.in's Moon endpoint. Date format is YYYY-MM-DD.
+    The graphics parameter controls text rendering: 's' for plain text,
+    'm' for ANSI (default), 'l' for full graphical.
     """
     date = args.get("date", "")
     lang = args.get("language", "") or None
     fmt = args.get("format", "") or None
     unit_system = _resolve_unit_system(args.get("unit_system"))
     explicit_unit = args.get("unit", "") or None
+    graphics = _resolve_graphics(args.get("graphics"))
 
     if date:
         location = f"Moon@{date}"
@@ -407,8 +601,10 @@ def weather_moon(args, **kwargs) -> str:
         location = "Moon"
 
     wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
+    text_flags = _resolve_text_options(graphics) if graphics == "s" else None
 
-    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None)
+    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None,
+                     text_flags=text_flags or None)
     result = _fetch_weather(url)
 
     if result["status"] == "error":
@@ -420,6 +616,7 @@ def weather_moon(args, **kwargs) -> str:
         "location": location,
         "date": date or "current date",
         "unit_system": unit_system,
+        "graphics": graphics,
         "url": result["url"]
     })
 
@@ -504,55 +701,115 @@ def check_weather_requirements() -> bool:
 
 
 def set_weather_preference(args, **kwargs) -> str:
-    """Set a persistent weather unit_system preference.
+    """Set persistent weather preferences in config.yaml.
 
-    Stores the preference in config.yaml under weather.unit_system.
-    Subsequent weather tool calls that don't specify unit_system
-    will use this persistent default. Per-request unit_system
-    parameters override this setting for that single call.
+    Stores preferences under the 'weather' section in config.yaml.
+    Supported preferences:
+    - unit_system: 'c' (Celsius), 'f' (Fahrenheit), 'both' (default), 's' (scientific)
+    - graphics: 's' (small/plain text), 'm' (medium/ANSI, default), 'l' (large/full graphics)
+    - detail: 's' (small/one-line), 'm' (medium/default forecast), 'l' (large/JSON)
+
+    Subsequent weather tool calls that don't specify a parameter will use
+    this persistent default. Per-request parameters override these settings.
     """
-    unit_system = args.get("unit_system", "both")
-    if unit_system not in ("c", "f", "both", "s"):
+    unit_system = args.get("unit_system")
+    graphics = args.get("graphics")
+    detail = args.get("detail")
+
+    # Validate provided parameters
+    errors = []
+    if unit_system is not None and unit_system not in ("c", "f", "both", "s"):
+        errors.append(f"unit_system must be one of: c, f, both, s (got '{unit_system}')")
+    if graphics is not None and graphics not in ("s", "m", "l", "small", "medium", "large"):
+        errors.append(f"graphics must be one of: s, m, l (got '{graphics}')")
+    if detail is not None and detail not in ("s", "m", "l", "small", "medium", "large"):
+        errors.append(f"detail must be one of: s, m, l (got '{detail}')")
+
+    if errors:
         return json.dumps({
             "status": "error",
-            "error": f"Invalid unit_system '{unit_system}'. Must be one of: c, f, both, s"
+            "error": "; ".join(errors)
         })
 
     try:
         from hermes_cli.config import load_config, save_config
         config = load_config()
-        config.setdefault("weather", {})["unit_system"] = unit_system
+        weather_config = config.setdefault("weather", {})
+        if unit_system is not None:
+            weather_config["unit_system"] = unit_system
+        if graphics is not None:
+            # Normalize long names
+            if graphics == "small":
+                weather_config["graphics"] = "s"
+            elif graphics == "medium":
+                weather_config["graphics"] = "m"
+            elif graphics == "large":
+                weather_config["graphics"] = "l"
+            else:
+                weather_config["graphics"] = graphics
+        if detail is not None:
+            # Normalize long names
+            if detail == "small":
+                weather_config["detail"] = "s"
+            elif detail == "medium":
+                weather_config["detail"] = "m"
+            elif detail == "large":
+                weather_config["detail"] = "l"
+            else:
+                weather_config["detail"] = detail
         save_config(config)
     except Exception as e:
         return json.dumps({"status": "error", "error": f"Failed to save preference: {e}"})
 
+    saved = {}
+    if unit_system is not None:
+        saved["unit_system"] = unit_system
+    if graphics is not None:
+        saved["graphics"] = weather_config.get("graphics")
+    if detail is not None:
+        saved["detail"] = weather_config.get("detail")
+
     return json.dumps({
         "status": "ok",
-        "message": f"Weather unit_system preference set to '{unit_system}' (C=°C/metric, F=°F/USCS, both=default, s=scientific). "
-                   f"This persistent setting will be used for all weather tool calls "
-                   f"that don't specify a unit_system parameter.",
-        "unit_system": unit_system
+        "message": (
+            "Weather preferences updated. These persistent settings will be used "
+            "for all weather tool calls that don't specify the parameter. "
+            "Per-request parameters override these settings."
+        ),
+        "saved": saved,
+        "unit_system_meaning": "c=Celsius/metric, f=Fahrenheit/USCS, both=both, s=scientific",
+        "graphics_meaning": "s=small(plain text), m=medium(ANSI), l=large(full graphics)",
+        "detail_meaning": "s=small(one-line), m=medium(default forecast), l=large(JSON)"
     })
 
 
 def get_weather_preference(args, **kwargs) -> str:
-    """Get the current persistent weather unit_system preference.
+    """Get all current persistent weather preferences from config.yaml.
 
-    Reads the preference from config.yaml under weather.unit_system.
-    Returns 'both' if not set.
+    Reads preferences from the 'weather' section in config.yaml.
+    Returns defaults if not set.
     """
     unit_system = _get_persistent_unit_system()
+    graphics = _get_persistent_graphics()
+    detail = _get_persistent_detail()
 
     return json.dumps({
         "status": "ok",
-        "unit_system": unit_system,
-        "description": (
-            "c = Celsius-only (metric), "
-            "f = Fahrenheit-only (USCS), "
-            "both = both units (default), "
-            "s = scientific"
-        ),
-        "set_command": "Use set_weather_preference(unit_system='c'|'f'|'both') to change."
+        "preferences": {
+            "unit_system": unit_system,
+            "graphics": graphics,
+            "detail": detail,
+        },
+        "descriptions": {
+            "unit_system": "c=Celsius-only (metric), f=Fahrenheit-only (USCS), both=both units (default), s=scientific",
+            "graphics": "s=small(plain text no ANSI), m=medium(ANSI colors, default), l=large(full graphical output)",
+            "detail": "s=small(one-line format), m=medium(default forecast), l=large(JSON with all details)",
+        },
+        "set_command": (
+            "Use set_weather_preference(unit_system='c'|'f'|'both'|'s', "
+            "graphics='s'|'m'|'l', detail='s'|'m'|'l') to change. "
+            "All parameters are optional — only specified ones will be updated."
+        )
     })
 
 
@@ -608,11 +865,34 @@ WEATHER_CURRENT_SCHEMA = {
                     "This parameter overrides the persistent default for this request only."
                 ),
                 "default": "both",
-                "enum": ["c", "f", "both"]
+                "enum": ["c", "f", "both", "s"]
             },
             "unit": {
                 "type": "string",
                 "description": "Explicit wttr.in unit parameter override ('m', 'M', 'u', 's'). Takes priority over unit_system."
+            },
+            "graphics": {
+                "type": "string",
+                "description": (
+                    "Graphics/text rendering size: 's' (small, plain text no ANSI), "
+                    "'m' (medium, ANSI colors, default), 'l' (large, full graphical output). "
+                    "If not provided, falls back to the persistent default set via "
+                    "'hermes config set weather.graphics=<s|m|l>'."
+                ),
+                "default": "m",
+                "enum": ["s", "m", "l"]
+            },
+            "detail": {
+                "type": "string",
+                "description": (
+                    "Amount of information detail: 's' (small, one-line format), "
+                    "'m' (medium, default forecast), 'l' (large, JSON with all details). "
+                    "If not provided, falls back to the persistent default set via "
+                    "'hermes config set weather.detail=<s|m|l>'. "
+                    "Ignored when an explicit format is provided."
+                ),
+                "default": "m",
+                "enum": ["s", "m", "l"]
             },
             "extra_params": {
                 "type": "string",
@@ -666,11 +946,32 @@ WEATHER_FORECAST_SCHEMA = {
                     "In JSON mode, this filters which temperature fields are returned."
                 ),
                 "default": "both",
-                "enum": ["c", "f", "both"]
+                "enum": ["c", "f", "both", "s"]
             },
             "unit": {
                 "type": "string",
                 "description": "Explicit wttr.in unit parameter override ('m', 'M', 'u', 's'). Takes priority over unit_system."
+            },
+            "graphics": {
+                "type": "string",
+                "description": (
+                    "Graphics/text rendering size: 's' (small, plain text), "
+                    "'m' (medium, ANSI, default), 'l' (large, full graphics). "
+                    "If not provided, falls back to persistent default."
+                ),
+                "default": "m",
+                "enum": ["s", "m", "l"]
+            },
+            "detail": {
+                "type": "string",
+                "description": (
+                    "Amount of information: 's' (small, one-line), "
+                    "'m' (medium, default forecast), 'l' (large, JSON). "
+                    "If not provided, falls back to persistent default. "
+                    "Ignored when an explicit format is provided."
+                ),
+                "default": "m",
+                "enum": ["s", "m", "l"]
             },
             "days": {
                 "type": "integer",
@@ -727,10 +1028,26 @@ WEATHER_ONELINE_SCHEMA = {
                     "Temperature unit preference: 'c' for Celsius, 'f' for Fahrenheit, "
                     "'both' (default) for wttr.in's default unit behavior. "
                     "If not provided, falls back to the persistent default set via "
-                    "'hermes config set weather.unit_system=<c|f|both>'."
+                    "'hermes config set weather.unit_system=<c|f|both|s>'."
                 ),
                 "default": "both",
-                "enum": ["c", "f", "both"]
+                "enum": ["c", "f", "both", "s"]
+            },
+            "graphics": {
+                "type": "string",
+                "description": (
+                    "Graphics rendering: 's' (small, plain text), "
+                    "'m' (medium, ANSI, default), 'l' (large, full graphics). "
+                    "If not provided, falls back to persistent default."
+                ),
+                "default": "m",
+                "enum": ["s", "m", "l"]
+            },
+            "detail": {
+                "type": "string",
+                "description": "Amount of information detail (ignored for one-line format)",
+                "default": "m",
+                "enum": ["s", "m", "l"]
             }
         },
     }
@@ -766,10 +1083,20 @@ WEATHER_MOON_SCHEMA = {
                 "description": (
                     "Temperature unit preference: 'c', 'f', or 'both' (default). "
                     "If not provided, falls back to the persistent default set via "
-                    "'hermes config set weather.unit_system=<c|f|both>'."
+                    "'hermes config set weather.unit_system=<c|f|both|s>'."
                 ),
                 "default": "both",
-                "enum": ["c", "f", "both"]
+                "enum": ["c", "f", "both", "s"]
+            },
+            "graphics": {
+                "type": "string",
+                "description": (
+                    "Graphics rendering: 's' (small, plain text), "
+                    "'m' (medium, ANSI, default), 'l' (large, full graphics). "
+                    "If not provided, falls back to persistent default."
+                ),
+                "default": "m",
+                "enum": ["s", "m", "l"]
             }
         },
     }
@@ -816,11 +1143,10 @@ WEATHER_HELP_SCHEMA = {
 WEATHER_SET_PREFERENCE_SCHEMA = {
     "name": "weather_set_preference",
     "description": (
-        "Set a persistent weather unit_system preference in config.yaml. "
-        "This preference is used for all subsequent weather tool calls that "
-        "don't explicitly specify a unit_system parameter. "
-        "Use 'c' for Celsius-only, 'f' for Fahrenheit-only, or 'both' (default) "
-        "for both units. Per-request unit_system parameters override this setting."
+        "Set persistent weather preferences in config.yaml. These preferences "
+        "are used for all subsequent weather tool calls that don't explicitly "
+        "specify the corresponding parameter. Per-request parameters override "
+        "these persistent settings for that single call."
     ),
     "parameters": {
         "type": "object",
@@ -834,6 +1160,24 @@ WEATHER_SET_PREFERENCE_SCHEMA = {
                 ),
                 "default": "both",
                 "enum": ["c", "f", "both", "s"]
+            },
+            "graphics": {
+                "type": "string",
+                "description": (
+                    "Graphics/text rendering size: 's' (small, plain text), "
+                    "'m' (medium, ANSI, default), 'l' (large, full graphics)."
+                ),
+                "default": "m",
+                "enum": ["s", "m", "l"]
+            },
+            "detail": {
+                "type": "string",
+                "description": (
+                    "Amount of information detail: 's' (small, one-line format), "
+                    "'m' (medium, default forecast), 'l' (large, JSON)."
+                ),
+                "default": "m",
+                "enum": ["s", "m", "l"]
             }
         },
     }
@@ -842,8 +1186,9 @@ WEATHER_SET_PREFERENCE_SCHEMA = {
 WEATHER_GET_PREFERENCE_SCHEMA = {
     "name": "weather_get_preference",
     "description": (
-        "Get the current persistent weather unit_system preference from config.yaml. "
-        "Returns the saved preference or 'both' if none has been set."
+        "Get all current persistent weather preferences from config.yaml. "
+        "Returns the saved unit_system, graphics, and detail preferences "
+        "or their defaults if none have been set."
     ),
     "parameters": {
         "type": "object",

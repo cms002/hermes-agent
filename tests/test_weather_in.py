@@ -563,7 +563,7 @@ class TestWeatherSetPreference:
         result = weather_module.set_weather_preference({"unit_system": "c"})
         parsed = json.loads(result)
         assert parsed["status"] == "ok"
-        assert parsed["unit_system"] == "c"
+        assert parsed["saved"]["unit_system"] == "c"
         mock_save.assert_called_once()
 
     @patch("tools.weather_in._get_persistent_unit_system", return_value="f")
@@ -574,22 +574,152 @@ class TestWeatherSetPreference:
         result = weather_module.set_weather_preference({"unit_system": "f"})
         parsed = json.loads(result)
         assert parsed["status"] == "ok"
-        assert parsed["unit_system"] == "f"
+        assert parsed["saved"]["unit_system"] == "f"
         mock_save.assert_called_once()
 
     def test_set_preference_invalid(self):
         result = weather_module.set_weather_preference({"unit_system": "invalid"})
         parsed = json.loads(result)
         assert parsed["status"] == "error"
-        assert "Invalid unit_system" in parsed["error"]
+        assert "unit_system must be one of" in parsed["error"]
+
+    @patch("hermes_cli.config.save_config")
+    @patch("hermes_cli.config.load_config")
+    def test_set_preference_graphics(self, mock_load, mock_save):
+        mock_load.return_value = {"weather": {}}
+        result = weather_module.set_weather_preference({"graphics": "s"})
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["saved"]["graphics"] == "s"
+        mock_save.assert_called_once()
+
+    @patch("hermes_cli.config.save_config")
+    @patch("hermes_cli.config.load_config")
+    def test_set_preference_detail(self, mock_load, mock_save):
+        mock_load.return_value = {"weather": {}}
+        result = weather_module.set_weather_preference({"detail": "l"})
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["saved"]["detail"] == "l"
+        mock_save.assert_called_once()
+
+    @patch("hermes_cli.config.save_config")
+    @patch("hermes_cli.config.load_config")
+    def test_set_preference_all_three(self, mock_load, mock_save):
+        mock_load.return_value = {"weather": {}}
+        result = weather_module.set_weather_preference({"unit_system": "f", "graphics": "l", "detail": "s"})
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["saved"]["unit_system"] == "f"
+        assert parsed["saved"]["graphics"] == "l"
+        assert parsed["saved"]["detail"] == "s"
+        mock_save.assert_called_once()
+
+    @patch("hermes_cli.config.save_config")
+    @patch("hermes_cli.config.load_config")
+    def test_set_preference_invalid_graphics(self, mock_load, mock_save):
+        mock_load.return_value = {"weather": {}}
+        result = weather_module.set_weather_preference({"graphics": "huge"})
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"
+        assert "graphics must be one of" in parsed["error"]
+
+    @patch("hermes_cli.config.save_config")
+    @patch("hermes_cli.config.load_config")
+    def test_set_preference_invalid_detail(self, mock_load, mock_save):
+        mock_load.return_value = {"weather": {}}
+        result = weather_module.set_weather_preference({"detail": "tiny"})
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"
+        assert "detail must be one of" in parsed["error"]
 
 
 class TestWeatherGetPreference:
     """Tests for the get_weather_preference tool."""
 
     def test_get_preference_default(self):
-        with patch("tools.weather_in._get_persistent_unit_system", return_value="both"):
+        with patch("tools.weather_in._get_persistent_unit_system", return_value="both"), \
+             patch("tools.weather_in._get_persistent_graphics", return_value="m"), \
+             patch("tools.weather_in._get_persistent_detail", return_value="m"):
             result = weather_module.get_weather_preference({})
             parsed = json.loads(result)
             assert parsed["status"] == "ok"
-            assert parsed["unit_system"] == "both"
+            assert parsed["preferences"]["unit_system"] == "both"
+            assert parsed["preferences"]["graphics"] == "m"
+            assert parsed["preferences"]["detail"] == "m"
+
+    @patch("tools.weather_in._get_persistent_unit_system", return_value="c")
+    @patch("tools.weather_in._get_persistent_graphics", return_value="l")
+    @patch("tools.weather_in._get_persistent_detail", return_value="s")
+    def test_get_preference_custom(self, _mock_detail, _mock_graphics, _mock_unit):
+        result = weather_module.get_weather_preference({})
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["preferences"]["unit_system"] == "c"
+        assert parsed["preferences"]["graphics"] == "l"
+        assert parsed["preferences"]["detail"] == "s"
+
+
+class TestGraphicsDetailPreferences:
+    """Tests for the graphics and detail preference resolution functions."""
+
+    @patch("tools.weather_in._get_persistent_graphics", return_value="m")
+    def test_resolve_graphics_explicit(self, _mock):
+        assert weather_module._resolve_graphics("s") == "s"
+        assert weather_module._resolve_graphics("l") == "l"
+
+    @patch("tools.weather_in._get_persistent_graphics", return_value="m")
+    def test_resolve_graphics_explicit_overrides_persistent(self, _mock):
+        # Persistent is 'm', explicit 'l' should win
+        assert weather_module._resolve_graphics("l") == "l"
+
+    @patch("tools.weather_in._get_persistent_graphics", return_value="m")
+    def test_resolve_graphics_none_falls_back(self, _mock):
+        assert weather_module._resolve_graphics(None) == "m"
+        assert weather_module._resolve_graphics("") == "m"
+
+    @patch("tools.weather_in._get_persistent_graphics", return_value="l")
+    def test_resolve_graphics_persistent_used(self, _mock):
+        assert weather_module._resolve_graphics(None) == "l"
+
+    @patch("tools.weather_in._get_persistent_graphics", return_value="m")
+    def test_resolve_graphics_normalizes_long_names(self, _mock):
+        assert weather_module._resolve_graphics("small") == "s"
+        assert weather_module._resolve_graphics("medium") == "m"
+        assert weather_module._resolve_graphics("large") == "l"
+
+    @patch("tools.weather_in._get_persistent_detail", return_value="m")
+    def test_resolve_detail_explicit(self, _mock):
+        assert weather_module._resolve_detail("s") == "s"
+        assert weather_module._resolve_detail("l") == "l"
+
+    @patch("tools.weather_in._get_persistent_detail", return_value="s")
+    def test_resolve_detail_persistent_used(self, _mock):
+        assert weather_module._resolve_detail(None) == "s"
+
+    @patch("tools.weather_in._get_persistent_detail", return_value="m")
+    def test_resolve_detail_normalizes_long_names(self, _mock):
+        assert weather_module._resolve_detail("small") == "s"
+        assert weather_module._resolve_detail("medium") == "m"
+        assert weather_module._resolve_detail("large") == "l"
+
+    def test_resolve_text_format(self):
+        # detail 's' -> format "1" (one-line)
+        assert weather_module._resolve_text_format(None, "s") == "1"
+        # detail 'm' -> None (default text output)
+        assert weather_module._resolve_text_format(None, "m") is None
+        # detail 'l' -> format "j1" (JSON)
+        assert weather_module._resolve_text_format(None, "l") == "j1"
+        # Explicit format takes priority over detail
+        assert weather_module._resolve_text_format("j2", "s") == "j2"
+        assert weather_module._resolve_text_format("3", "l") == "3"
+
+    def test_resolve_text_options(self):
+        # Small graphics: plain text + standard glyphs
+        flags = weather_module._resolve_text_options("s")
+        assert "T" in flags
+        assert "d" in flags
+        # Medium graphics: no extra flags
+        assert weather_module._resolve_text_options("m") == ""
+        # Large graphics: no extra flags
+        assert weather_module._resolve_text_options("l") == ""
