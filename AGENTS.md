@@ -1277,6 +1277,31 @@ def profile_env(tmp_path, monkeypatch):
     return home
 ```
 
+### macOS Keychain service naming convention
+
+When storing secrets in macOS Keychain for Hermes tools/gateways, use a
+**consistent naming convention** to avoid resolution failures:
+
+- **Service name** = the environment variable name (e.g. `AGENTMAIL_API_KEY`,
+  `TELEGRAM_BOT_TOKEN`). This is what `secrets.command` and tool `check_fn`s
+  look up.
+- **Account** = the macOS username (`$USER`).
+
+Example for the Telegram bot token:
+```sh
+security add-generic-password -a "$USER" -s "TELEGRAM_BOT_TOKEN" \
+    -w "your_bot_token_here" -T /usr/bin/security
+```
+
+**Common mistake:** storing with `service=hermes-agent`,
+`account=TELEGRAM_BOT_TOKEN` — the lookup then fails because tools and
+`secrets.command` query by the env-var name as the service, not the reverse.
+Always query with the same convention you stored:
+```sh
+# Lookup (must match storage):
+security find-generic-password -s "TELEGRAM_BOT_TOKEN" -a "$USER" -w
+```
+
 ---
 
 ## Testing
