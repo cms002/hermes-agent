@@ -85,6 +85,9 @@ _HERMES_CORE_TOOLS = [
     "computer_use",
     # Email sending via AgentMail or SMTP
     "email_send",
+    # Weather information via wttr.in
+    "weather_current", "weather_forecast", "weather_oneline",
+    "weather_moon", "weather_prometheus", "weather_help",
 ]
 
 # Webhook events may originate from untrusted third-party content (for example,
@@ -462,6 +465,9 @@ TOOLSETS = {
             "cronjob",
             # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
             "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
+            # Weather information via wttr.in
+            "weather_current", "weather_forecast", "weather_oneline",
+            "weather_moon", "weather_prometheus", "weather_help",
 
         ],
         "includes": []

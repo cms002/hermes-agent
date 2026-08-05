@@ -60,7 +60,8 @@ class TestGetToolset:
 class TestResolveToolset:
     def test_leaf_toolset(self):
         tools = resolve_toolset("web")
-        assert set(tools) == {"web_search", "web_extract"}
+        assert set(tools) == {"web_search", "web_extract", "weather_current", "weather_forecast",
+                              "weather_oneline", "weather_moon", "weather_prometheus", "weather_help"}
 
     def test_composite_toolset(self):
         tools = resolve_toolset("debugging")
@@ -146,7 +147,7 @@ class TestGetToolsetInfo:
         info = get_toolset_info("web")
         assert info["name"] == "web"
         assert info["is_composite"] is False
-        assert info["tool_count"] == 2
+        assert info["tool_count"] == 8
 
     def test_composite(self):
         info = get_toolset_info("debugging")
