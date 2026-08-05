@@ -86,15 +86,15 @@ def _get_current_location() -> str:
     """
     try:
         # Try to import location_services module
-        from tools.location_services import _get_location_cached
+        from tools.location_services import _detect_location
 
-        location = _get_location_cached()
+        location = _detect_location()
         if location and location.get("precise_coords"):
             # Use precise GPS coordinates for best weather accuracy
             coords = location["precise_coords"]
             return coords
-        elif location and location.get("address"):
-            return location["address"]
+        elif location and location.get("ip_coords"):
+            return location["ip_coords"]
     except (ImportError, Exception) as e:
         logger.debug(f"Location services module not available or error: {e}")
 

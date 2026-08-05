@@ -62,7 +62,9 @@ class TestResolveToolset:
         tools = resolve_toolset("web")
         assert set(tools) == {"web_search", "web_extract", "weather_current", "weather_forecast",
                               "weather_oneline", "weather_moon", "weather_prometheus", "weather_help",
-                              "weather_set_preference", "weather_get_preference", "weather_setup"}
+                              "weather_set_preference", "weather_get_preference", "weather_setup",
+                              "location_get", "location_get_coords", "location_reverse_geocode",
+                              "location_get_ip", "location_get_timezone"}
 
     def test_composite_toolset(self):
         tools = resolve_toolset("debugging")
@@ -148,7 +150,7 @@ class TestGetToolsetInfo:
         info = get_toolset_info("web")
         assert info["name"] == "web"
         assert info["is_composite"] is False
-        assert info["tool_count"] == 11
+        assert info["tool_count"] == 16
 
     def test_composite(self):
         info = get_toolset_info("debugging")

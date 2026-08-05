@@ -708,8 +708,9 @@ class TestGraphicsDetailPreferences:
         assert weather_module._resolve_text_format(None, "s") == "1"
         # detail 'm' -> None (default text output)
         assert weather_module._resolve_text_format(None, "m") is None
-        # detail 'l' -> format "j1" (JSON)
-        assert weather_module._resolve_text_format(None, "l") == "j1"
+        # detail 'l' -> None (default text output with full ASCII graphics)
+        # 'l' detail uses the default text format for richest visual output
+        assert weather_module._resolve_text_format(None, "l") is None
         # Explicit format takes priority over detail
         assert weather_module._resolve_text_format("j2", "s") == "j2"
         assert weather_module._resolve_text_format("3", "l") == "3"
