@@ -23,7 +23,7 @@ class TestWeatherURLBuilder:
         assert "wttr.in/Paris" in url
         assert "format=3" in url
         assert "lang=fr" in url
-        assert "u=m" in url
+        assert "&m" in url
 
     def test_build_url_moon_with_date(self):
         url = weather_module._build_url("Moon@2026-08-15")
@@ -247,3 +247,219 @@ class TestCheckRequirements:
         mock_client_cls.return_value = mock_client
 
         assert weather_module.check_weather_requirements() is False
+
+
+class TestUnitSystemPreference:
+    """Tests for the unit_system preference and _resolve_unit_params helper."""
+
+    def test_resolve_unit_params_both(self):
+        assert weather_module._resolve_unit_params("both") == ""
+
+    def test_resolve_unit_params_celsius(self):
+        assert weather_module._resolve_unit_params("c") == "m"
+
+    def test_resolve_unit_params_fahrenheit(self):
+        assert weather_module._resolve_unit_params("f") == "u"
+
+    def test_resolve_unit_params_scientific(self):
+        assert weather_module._resolve_unit_params("s") == "s"
+
+    def test_resolve_unit_params_explicit_unit_overrides(self):
+        assert weather_module._resolve_unit_params("both", unit="m") == "m"
+        assert weather_module._resolve_unit_params("c", unit="u") == "u"
+
+    def test_resolve_unit_params_empty_string(self):
+        assert weather_module._resolve_unit_params("") == ""
+
+
+class TestJsonUnitFilter:
+    """Tests for the _filter_json_units function."""
+
+    def test_filter_json_units_both_keeps_all(self):
+        data = {"temp_C": "24", "temp_F": "75", "FeelsLikeC": "24", "FeelsLikeF": "75"}
+        result = weather_module._filter_json_units(data, "both")
+        assert result == data
+
+    def test_filter_json_units_celsius_removes_fahrenheit(self):
+        data = {"temp_C": "24", "temp_F": "75", "FeelsLikeC": "24", "FeelsLikeF": "75"}
+        result = weather_module._filter_json_units(data, "c")
+        assert "temp_C" in result
+        assert "FeelsLikeC" in result
+        assert "temp_F" not in result
+        assert "FeelsLikeF" not in result
+
+    def test_filter_json_units_fahrenheit_removes_celsius(self):
+        data = {"temp_C": "24", "temp_F": "75", "FeelsLikeC": "24", "FeelsLikeF": "75"}
+        result = weather_module._filter_json_units(data, "f")
+        assert "temp_F" in result
+        assert "FeelsLikeF" in result
+        assert "temp_C" not in result
+        assert "FeelsLikeC" not in result
+
+    def test_filter_json_units_nested_dict(self):
+        data = {
+            "current_condition": [{
+                "temp_C": "24",
+                "temp_F": "75",
+                "weatherDesc": [{"value": "Sunny"}]
+            }]
+        }
+        result = weather_module._filter_json_units(data, "c")
+        assert result["current_condition"][0]["temp_C"] == "24"
+        assert "temp_F" not in result["current_condition"][0]
+        assert result["current_condition"][0]["weatherDesc"][0]["value"] == "Sunny"
+
+    def test_filter_json_units_preserves_non_temp_fields(self):
+        data = {"temp_C": "24", "humidity": "31", "windspeedKmph": "15"}
+        result = weather_module._filter_json_units(data, "c")
+        assert result["temp_C"] == "24"
+        assert result["humidity"] == "31"
+        assert result["windspeedKmph"] == "15"
+
+    def test_filter_json_units_in_forecast_data(self):
+        data = {
+            "weather": [{
+                "date": "2026-08-05",
+                "maxtempC": "30",
+                "maxtempF": "86",
+                "mintempC": "20",
+                "mintempF": "68",
+            }]
+        }
+        result = weather_module._filter_json_units(data, "f")
+        assert result["weather"][0]["maxtempF"] == "86"
+        assert result["weather"][0]["mintempF"] == "68"
+        assert "maxtempC" not in result["weather"][0]
+        assert "mintempC" not in result["weather"][0]
+
+
+class TestWeatherCurrentWithUnitSystem:
+    """Tests for weather_current with unit_system parameter."""
+
+    @patch("tools.weather_in._fetch_weather")
+    def test_weather_current_celsius_json(self, mock_fetch):
+        mock_fetch.return_value = {
+            "status": "ok",
+            "content": json.dumps({
+                "current_condition": [{
+                    "temp_C": "24",
+                    "temp_F": "75",
+                    "FeelsLikeC": "24",
+                    "FeelsLikeF": "75",
+                    "humidity": "31",
+                }]
+            }),
+            "content_type": "application/json",
+            "url": "https://wttr.in/London?format=j1&u=m",
+        }
+
+        result = weather_module.weather_current({
+            "location": "London",
+            "format": "j1",
+            "unit_system": "c"
+        })
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        current = parsed["data"]["current_condition"][0]
+        assert current["temp_C"] == "24"
+        assert "temp_F" not in current
+        assert current["FeelsLikeC"] == "24"
+        assert "FeelsLikeF" not in current
+        assert current["humidity"] == "31"  # Non-temp fields preserved
+
+    @patch("tools.weather_in._fetch_weather")
+    def test_weather_current_fahrenheit_json(self, mock_fetch):
+        mock_fetch.return_value = {
+            "status": "ok",
+            "content": json.dumps({
+                "current_condition": [{
+                    "temp_C": "24",
+                    "temp_F": "75",
+                    "FeelsLikeC": "24",
+                    "FeelsLikeF": "75",
+                    "humidity": "31",
+                }]
+            }),
+            "content_type": "application/json",
+            "url": "https://wttr.in/London?format=j1&u=u",
+        }
+
+        result = weather_module.weather_current({
+            "location": "London",
+            "format": "j1",
+            "unit_system": "f"
+        })
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        current = parsed["data"]["current_condition"][0]
+        assert current["temp_F"] == "75"
+        assert "temp_C" not in current
+        assert current["FeelsLikeF"] == "75"
+        assert "FeelsLikeC" not in current
+
+    @patch("tools.weather_in._fetch_weather")
+    def test_weather_current_both_json(self, mock_fetch):
+        mock_fetch.return_value = {
+            "status": "ok",
+            "content": json.dumps({
+                "current_condition": [{
+                    "temp_C": "24",
+                    "temp_F": "75",
+                }]
+            }),
+            "content_type": "application/json",
+            "url": "https://wttr.in/London?format=j1",
+        }
+
+        result = weather_module.weather_current({
+            "location": "London",
+            "format": "j1",
+            "unit_system": "both"
+        })
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        current = parsed["data"]["current_condition"][0]
+        assert current["temp_C"] == "24"
+        assert current["temp_F"] == "75"
+
+
+class TestWeatherOnelineWithUnitSystem:
+    """Tests for weather_oneline with unit_system parameter."""
+
+    @patch("tools.weather_in._fetch_weather")
+    def test_weather_oneline_celsius(self, mock_fetch):
+        mock_fetch.return_value = {
+            "status": "ok",
+            "content": "London: ☀️  +24°C",
+            "content_type": "text/plain",
+            "url": "https://wttr.in/London?format=3&u=m",
+        }
+
+        result = weather_module.weather_oneline({
+            "location": "London",
+            "format": "3",
+            "unit_system": "c"
+        })
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["unit_system"] == "c"
+        assert "24°C" in parsed["content"]
+
+    @patch("tools.weather_in._fetch_weather")
+    def test_weather_oneline_fahrenheit(self, mock_fetch):
+        mock_fetch.return_value = {
+            "status": "ok",
+            "content": "London: ☀️  +75°F",
+            "content_type": "text/plain",
+            "url": "https://wttr.in/London?format=3&u=u",
+        }
+
+        result = weather_module.weather_oneline({
+            "location": "London",
+            "format": "3",
+            "unit_system": "f"
+        })
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["unit_system"] == "f"
+        assert "75°F" in parsed["content"]

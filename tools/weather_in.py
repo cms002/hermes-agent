@@ -28,13 +28,19 @@ Usage examples:
 
     # Prometheus metrics
     result = weather_prometheus(location="London")
+
+    # Current weather with Celsius preference
+    result = weather_current(location="London", format="j1", unit_system="c")
+
+    # Forecast with Fahrenheit preference
+    result = weather_forecast(location="Mountain View, CA", unit_system="f")
 """
 
 import json
 import logging
 import os
 import urllib.parse
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 import httpx
 
@@ -46,6 +52,9 @@ _WTTR_BASE_URL = os.environ.get("HERMES_WTTR_BASE_URL", "https://wttr.in")
 
 # Default timeout for wttr.in requests
 _WTTR_TIMEOUT_SECONDS = 30
+
+# Default unit system preference: "c" (Celsius/metric), "f" (Fahrenheit/USCS), or "both"
+_DEFAULT_UNIT_SYSTEM = "both"
 
 
 def _fetch_weather(url: str) -> Dict[str, Any]:
@@ -116,8 +125,8 @@ def _build_url(location: str, fmt: Optional[str] = None, lang: Optional[str] = N
         fmt: Output format. For JSON use "j1" or "j2". For one-line use "1"-"4"
              or custom %-notation string. For Prometheus use "p1". For text use None.
         lang: Language code (e.g., "fr", "de", "es").
-        unit: Unit system — "m" for metric, "M" for metric with m/s,
-              "u" for USCS, "s" for scientific.
+        unit: Unit system as a bare wttr.in flag: "m" for metric, "M" for metric
+              with m/s, "u" for USCS, "s" for scientific. Empty for default.
         extra_params: Additional query parameters as a string.
 
     Returns:
@@ -129,7 +138,8 @@ def _build_url(location: str, fmt: Optional[str] = None, lang: Optional[str] = N
     if lang:
         parts.append(f"lang={urllib.parse.quote(lang, safe='')}")
     if unit:
-        parts.append(f"u={urllib.parse.quote(unit, safe='')}")
+        # wttr.in unit params are bare flags, not key=value (e.g., ?m not ?u=m)
+        parts.append(unit)
     if extra_params:
         parts.append(extra_params)
 
@@ -146,6 +156,67 @@ def _build_url(location: str, fmt: Optional[str] = None, lang: Optional[str] = N
     return url
 
 
+def _resolve_unit_params(unit_system: str, unit: Optional[str] = None) -> str:
+    """Resolve unit system preference and explicit unit parameter to wttr.in unit.
+
+    Args:
+        unit_system: "c" for metric/Celsius, "f" for USCS/Fahrenheit, "both" for default.
+        unit: Explicit unit override (takes priority over unit_system).
+
+    Returns:
+        wttr.in unit parameter value ("m", "M", "u", "s") or empty string.
+    """
+    if unit:
+        return unit
+    if unit_system == "c":
+        return "m"  # metric
+    elif unit_system == "f":
+        return "u"  # USCS
+    elif unit_system == "s":
+        return "s"  # scientific
+    return ""  # wttr.in default
+
+
+def _filter_json_units(data: Dict[str, Any], unit_system: str) -> Dict[str, Any]:
+    """Filter JSON weather data to remove unwanted temperature units.
+
+    When unit_system is "c", removes all *F fields.
+    When unit_system is "f", removes all *C fields.
+    When unit_system is "both" or anything else, leaves all fields intact.
+
+    Args:
+        data: Parsed JSON weather data from wttr.in.
+        unit_system: "c", "f", or "both".
+
+    Returns:
+        Filtered data dictionary.
+    """
+    if unit_system == "both":
+        return data
+
+    def _filter_dict(d: Any) -> Any:
+        if isinstance(d, dict):
+            return {k: _filter_dict(v) for k, v in d.items()
+                    if not _should_remove_key(k, unit_system)}
+        elif isinstance(d, list):
+            return [_filter_dict(item) for item in d]
+        else:
+            return d
+
+    return _filter_dict(data)
+
+
+def _should_remove_key(key: str, unit_system: str) -> bool:
+    """Check if a key should be removed based on unit system preference."""
+    if unit_system == "c":
+        # Remove Fahrenheit fields like temp_F, FeelsLikeF, etc.
+        return key.endswith("F") and not key.endswith("Fahrenheit")
+    elif unit_system == "f":
+        # Remove Celsius fields like temp_C, FeelsLikeC, etc.
+        return key.endswith("C") and not key.endswith("Celsius")
+    return False
+
+
 def weather_current(args, **kwargs) -> str:
     """Get current weather conditions for a location.
 
@@ -155,10 +226,13 @@ def weather_current(args, **kwargs) -> str:
     location = args.get("location", "")
     fmt = args.get("format", "j1")
     lang = args.get("language", "") or None
-    unit = args.get("unit", "") or None
+    unit_system = args.get("unit_system", _DEFAULT_UNIT_SYSTEM)
+    explicit_unit = args.get("unit", "") or None
     extra_params = args.get("extra_params", "") or None
 
-    url = _build_url(location, fmt=fmt, lang=lang, unit=unit, extra_params=extra_params)
+    wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
+
+    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None, extra_params=extra_params)
     result = _fetch_weather(url)
 
     if result["status"] == "error":
@@ -168,6 +242,9 @@ def weather_current(args, **kwargs) -> str:
     if fmt in ("j1", "j2"):
         try:
             parsed = json.loads(result["content"])
+            # Filter units if unit_system is not "both"
+            if unit_system != "both":
+                parsed = _filter_json_units(parsed, unit_system)
             return json.dumps({"status": "ok", "data": parsed, "url": result["url"]})
         except json.JSONDecodeError as e:
             return json.dumps({
@@ -182,6 +259,7 @@ def weather_current(args, **kwargs) -> str:
         "content": result["content"],
         "format": fmt,
         "location": location or "auto-detected (by IP)",
+        "unit_system": unit_system,
         "url": result["url"]
     })
 
@@ -195,7 +273,8 @@ def weather_forecast(args, **kwargs) -> str:
     location = args.get("location", "")
     fmt = args.get("format", "") or None
     lang = args.get("language", "") or None
-    unit = args.get("unit", "") or None
+    unit_system = args.get("unit_system", _DEFAULT_UNIT_SYSTEM)
+    explicit_unit = args.get("unit", "") or None
     extra_params = args.get("extra_params", "") or None
 
     # Build extra params for forecast days if requested
@@ -206,7 +285,9 @@ def weather_forecast(args, **kwargs) -> str:
         else:
             extra_params = f"days={days}"
 
-    url = _build_url(location, fmt=fmt, lang=lang, unit=unit, extra_params=extra_params)
+    wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
+
+    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None, extra_params=extra_params)
     result = _fetch_weather(url)
 
     if result["status"] == "error":
@@ -216,6 +297,9 @@ def weather_forecast(args, **kwargs) -> str:
     if fmt in ("j1", "j2"):
         try:
             parsed = json.loads(result["content"])
+            # Filter units if unit_system is not "both"
+            if unit_system != "both":
+                parsed = _filter_json_units(parsed, unit_system)
             return json.dumps({"status": "ok", "data": parsed, "url": result["url"]})
         except json.JSONDecodeError as e:
             return json.dumps({
@@ -228,6 +312,7 @@ def weather_forecast(args, **kwargs) -> str:
         "status": "ok",
         "content": result["content"],
         "location": location or "auto-detected (by IP)",
+        "unit_system": unit_system,
         "url": result["url"]
     })
 
@@ -237,13 +322,18 @@ def weather_oneline(args, **kwargs) -> str:
 
     Uses wttr.in's format parameter. Preconfigured formats 1-4 or custom
     %-notation strings. Supports multiple locations separated by colon.
+    The unit_system parameter controls which unit is displayed: 'c' for
+    metric (Celsius), 'f' for USCS (Fahrenheit), 'both' for default.
     """
     location = args.get("location", "")
     fmt = args.get("format", "3")
     lang = args.get("language", "") or None
-    unit = args.get("unit", "") or None
+    unit_system = args.get("unit_system", _DEFAULT_UNIT_SYSTEM)
+    explicit_unit = args.get("unit", "") or None
 
-    url = _build_url(location, fmt=fmt, lang=lang, unit=unit)
+    wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
+
+    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None)
     result = _fetch_weather(url)
 
     if result["status"] == "error":
@@ -254,6 +344,7 @@ def weather_oneline(args, **kwargs) -> str:
         "content": result["content"].strip(),
         "format": fmt,
         "location": location or "auto-detected (by IP)",
+        "unit_system": unit_system,
         "url": result["url"]
     })
 
@@ -266,13 +357,17 @@ def weather_moon(args, **kwargs) -> str:
     date = args.get("date", "")
     lang = args.get("language", "") or None
     fmt = args.get("format", "") or None
+    unit_system = args.get("unit_system", _DEFAULT_UNIT_SYSTEM)
+    explicit_unit = args.get("unit", "") or None
 
     if date:
         location = f"Moon@{date}"
     else:
         location = "Moon"
 
-    url = _build_url(location, fmt=fmt, lang=lang)
+    wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
+
+    url = _build_url(location, fmt=fmt, lang=lang, unit=wttr_unit or None)
     result = _fetch_weather(url)
 
     if result["status"] == "error":
@@ -283,6 +378,7 @@ def weather_moon(args, **kwargs) -> str:
         "content": result["content"],
         "location": location,
         "date": date or "current date",
+        "unit_system": unit_system,
         "url": result["url"]
     })
 
@@ -292,6 +388,7 @@ def weather_prometheus(args, **kwargs) -> str:
 
     Returns Prometheus-formatted metrics including temperature, humidity,
     wind speed, pressure, and other meteorological observations.
+    Prometheus output includes both Celsius and Fahrenheit metrics.
     """
     location = args.get("location", "")
 
@@ -306,6 +403,7 @@ def weather_prometheus(args, **kwargs) -> str:
         "content": result["content"],
         "location": location or "auto-detected (by IP)",
         "format": "prometheus",
+        "unit_system": "both",
         "url": result["url"]
     })
 
@@ -338,8 +436,9 @@ def weather_help(args, **kwargs) -> str:
             "wttr.in supports: locations (city names, coordinates, airport codes, "
             "@domain, IP), formats (j1/j2 JSON, 1-4 one-line, custom % notation, "
             "v2/v2d/v2n data-rich, p1 Prometheus, .png for images), units "
-            "(m=metric, M=metric with m/s, u=USCS, s=scientific), and languages "
-            "(lang=XX). Use wttr.is as a reliable fallback domain."
+            "(m=metric/Celsius, M=metric with m/s, u=USCS/Fahrenheit, s=scientific), "
+            "and languages (lang=XX). Use wttr.is as a reliable fallback domain. "
+            "Use unit_system='c' for Celsius-only or unit_system='f' for Fahrenheit-only."
         )
     })
 
@@ -374,7 +473,9 @@ WEATHER_CURRENT_SCHEMA = {
         "Returns comprehensive weather data (temperature, humidity, wind, "
         "precipitation, forecast) in JSON format by default. Supports locations "
         "by city name, coordinates, airport code, @domain, or IP address. "
-        "No API key required for the public wttr.in service."
+        "No API key required for the public wttr.in service. "
+        "Use unit_system='c' for Celsius-only, 'f' for Fahrenheit-only, "
+        "or 'both' (default) for both units."
     ),
     "parameters": {
         "type": "object",
@@ -401,10 +502,20 @@ WEATHER_CURRENT_SCHEMA = {
                 "type": "string",
                 "description": "Language code for localized output (e.g., 'fr', 'de', 'es', 'ja')."
             },
+            "unit_system": {
+                "type": "string",
+                "description": (
+                    "Temperature unit preference: 'c' for metric/Celsius only, "
+                    "'f' for USCS/Fahrenheit only, 'both' (default) for both units. "
+                    "In JSON mode, this filters which temperature fields are returned. "
+                    "In text mode, it controls the wttr.in unit parameter."
+                ),
+                "default": "both",
+                "enum": ["c", "f", "both"]
+            },
             "unit": {
                 "type": "string",
-                "description": "Unit system: 'm' for metric (SI), 'M' for metric with m/s wind speed, "
-                             " 'u' for USCS (default for US), 's' for scientific."
+                "description": "Explicit wttr.in unit parameter override ('m', 'M', 'u', 's'). Takes priority over unit_system."
             },
             "extra_params": {
                 "type": "string",
@@ -420,7 +531,8 @@ WEATHER_FORECAST_SCHEMA = {
         "Get weather forecast for a location using the wttr.in service. "
         "Returns either formatted text forecast (default) or JSON data "
         "(format='j1' or 'j2') with current conditions, hourly, and daily "
-        "forecasts including temperature, precipitation, wind, and astronomy data."
+        "forecasts including temperature, precipitation, wind, and astronomy data. "
+        "Use unit_system='c' for Celsius, 'f' for Fahrenheit, or 'both' (default)."
     ),
     "parameters": {
         "type": "object",
@@ -447,10 +559,19 @@ WEATHER_FORECAST_SCHEMA = {
                 "type": "string",
                 "description": "Language code for localized output (e.g., 'fr', 'de', 'es', 'ja')."
             },
+            "unit_system": {
+                "type": "string",
+                "description": (
+                    "Temperature unit preference: 'c' for metric/Celsius only, "
+                    "'f' for USCS/Fahrenheit only, 'both' (default) for both units. "
+                    "In JSON mode, this filters which temperature fields are returned."
+                ),
+                "default": "both",
+                "enum": ["c", "f", "both"]
+            },
             "unit": {
                 "type": "string",
-                "description": "Unit system: 'm' for metric (SI), 'M' for metric with m/s wind speed, "
-                             " 'u' for USCS (default for US), 's' for scientific."
+                "description": "Explicit wttr.in unit parameter override ('m', 'M', 'u', 's'). Takes priority over unit_system."
             },
             "days": {
                 "type": "integer",
@@ -474,7 +595,8 @@ WEATHER_ONELINE_SCHEMA = {
         "%t (temp), %h (humidity), %w (wind), %l (location), %m (moon phase), "
         "%p (precipitation), %P (pressure), %u (UV index), %e (dew point), "
         "%S (sunrise), %s (sunset), %T (current time), %Z (timezone), etc. "
-        "Multiple locations can be passed colon-separated for batch queries."
+        "Multiple locations can be passed colon-separated for batch queries. "
+        "Use unit_system='c' for Celsius, 'f' for Fahrenheit, or 'both' (default)."
     ),
     "parameters": {
         "type": "object",
@@ -500,9 +622,14 @@ WEATHER_ONELINE_SCHEMA = {
                 "type": "string",
                 "description": "Language code for localized output (e.g., 'fr', 'de', 'es')."
             },
-            "unit": {
+            "unit_system": {
                 "type": "string",
-                "description": "Unit system: 'm' for metric (SI), 'M' for metric with m/s, 'u' for USCS, 's' for scientific."
+                "description": (
+                    "Temperature unit preference: 'c' for Celsius, 'f' for Fahrenheit, "
+                    "'both' (default) for wttr.in's default unit behavior."
+                ),
+                "default": "both",
+                "enum": ["c", "f", "both"]
             }
         },
     }
@@ -532,6 +659,12 @@ WEATHER_MOON_SCHEMA = {
             "format": {
                 "type": "string",
                 "description": "Output format (e.g., 'j1' for JSON)."
+            },
+            "unit_system": {
+                "type": "string",
+                "description": "Temperature unit preference: 'c', 'f', or 'both' (default).",
+                "default": "both",
+                "enum": ["c", "f", "both"]
             }
         },
     }
@@ -544,7 +677,8 @@ WEATHER_PROMETHEUS_SCHEMA = {
         "metrics including temperature (C/F), feels-like temperature, wind speed, "
         "humidity, pressure, precipitation, UV index, cloud cover, and astronomy "
         "data (sunrise/sunset, moon phase, moon illumination). Suitable for "
-        "monitoring and time-series database integration."
+        "monitoring and time-series database integration. Prometheus output "
+        "includes both Celsius and Fahrenheit metrics."
     ),
     "parameters": {
         "type": "object",
