@@ -380,7 +380,15 @@ def _reset_location_cache():
 
 
 def location_get(args, **kwargs):
-    """Get the user's current geographic location with full address details."""
+    """Get the user's current geographic location with full address details.
+
+    Uses CoreLocationCLI on macOS for precise GPS, or IP-based geolocation
+    (ipinfo.io) as a cross-platform fallback. Location is cached after first
+    detection. Use refresh=true to bypass cache.
+
+    Returns coordinates, address, POI/business name, city, state, country,
+    timezone, and IP info.
+    """
     refresh = args.get("refresh", False)
     if refresh:
         _reset_location_cache()
@@ -393,6 +401,24 @@ def location_get(args, **kwargs):
         if value:
             response["location"][key] = value
     response["location"]["detection_method"] = location.get("location_method", "unknown")
+
+    # Build a human-friendly summary that highlights the business/POI name
+    summary_parts = []
+    if location.get("poi_name"):
+        summary_parts.append(f"{location['poi_name']}")
+    if location.get("street") and location.get("house_number"):
+        summary_parts.append(f"{location['house_number']} {location['street']}")
+    elif location.get("street"):
+        summary_parts.append(location["street"])
+    if location.get("city"):
+        summary_parts.append(location["city"])
+    if location.get("state"):
+        summary_parts.append(location["state"])
+    if location.get("postcode"):
+        summary_parts.append(location["postcode"])
+    if location.get("country"):
+        summary_parts.append(location["country"])
+    response["location"]["formatted_address"] = ", ".join(p for p in summary_parts if p)
 
     return json.dumps(response)
 
