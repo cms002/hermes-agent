@@ -723,3 +723,71 @@ class TestGraphicsDetailPreferences:
         assert weather_module._resolve_text_options("m") == ""
         # Large graphics: no extra flags
         assert weather_module._resolve_text_options("l") == ""
+
+
+class TestWeatherSetup:
+    """Tests for the weather_setup tool."""
+
+    @patch("tools.weather_in._get_persistent_unit_system", return_value="both")
+    @patch("tools.weather_in._get_persistent_graphics", return_value="m")
+    @patch("tools.weather_in._get_persistent_detail", return_value="m")
+    @patch("hermes_cli.config.cfg_get", return_value="not_set")
+    @patch("hermes_cli.config.load_config_readonly")
+    def test_setup_no_prefs_shows_prompt(self, mock_load, mock_cfg_get, _d, _g, _u):
+        """When no preferences are set, setup returns a prompt message."""
+        mock_load.return_value = {}
+        result = weather_module.weather_setup({})
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["setup_required"] is True
+        assert "First time using weather tools" in parsed["message"]
+        assert "current_defaults" in parsed
+
+    @patch("tools.weather_in._get_persistent_unit_system", return_value="f")
+    @patch("tools.weather_in._get_persistent_graphics", return_value="s")
+    @patch("tools.weather_in._get_persistent_detail", return_value="l")
+    @patch("hermes_cli.config.cfg_get")
+    @patch("hermes_cli.config.load_config_readonly")
+    def test_setup_with_prefs_shows_current(self, mock_load, mock_cfg_get, _d, _g, _u):
+        """When preferences are already set, setup shows current values."""
+        mock_load.return_value = {"weather": {"unit_system": "f", "graphics": "s", "detail": "l"}}
+        mock_cfg_get.return_value = "f"  # weather section exists
+        # cfg_get is called with config, "weather" — need to handle the default
+        def cfg_get_side_effect(cfg, key, default=None):
+            if key == "weather":
+                return {"unit_system": "f", "graphics": "s", "detail": "l"}
+            return default
+        mock_cfg_get.side_effect = cfg_get_side_effect
+
+        result = weather_module.weather_setup({})
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["setup_required"] is False
+        assert parsed["current_preferences"]["unit_system"] == "f"
+        assert parsed["current_preferences"]["graphics"] == "s"
+        assert parsed["current_preferences"]["detail"] == "l"
+
+    @patch("hermes_cli.config.save_config")
+    @patch("hermes_cli.config.load_config")
+    def test_setup_with_params_saves_preferences(self, mock_load, mock_save):
+        """When params are provided, setup saves them as preferences."""
+        mock_load.return_value = {"weather": {}}
+        result = weather_module.weather_setup({"unit_system": "c", "graphics": "m", "detail": "l"})
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert "saved" in parsed
+        assert parsed["saved"]["unit_system"] == "c"
+        assert parsed["saved"]["graphics"] == "m"
+        assert parsed["saved"]["detail"] == "l"
+
+    @patch("hermes_cli.config.save_config")
+    @patch("hermes_cli.config.load_config")
+    def test_setup_with_partial_params_saves_some(self, mock_load, mock_save):
+        """When only some params are provided, only those are saved."""
+        mock_load.return_value = {"weather": {}}
+        result = weather_module.weather_setup({"unit_system": "f"})
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert parsed["saved"]["unit_system"] == "f"
+        assert "graphics" not in parsed["saved"]
+        assert "detail" not in parsed["saved"]

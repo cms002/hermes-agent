@@ -813,6 +813,98 @@ def get_weather_preference(args, **kwargs) -> str:
     })
 
 
+def weather_setup(args, **kwargs) -> str:
+    """First-run setup or reconfiguration for weather preferences.
+
+    When called, checks if weather preferences have been previously set in
+    config.yaml. If not, returns an interactive setup prompt with
+    recommendations. If preferences are already set, shows current values
+    and suggests commands to change them.
+
+    If 'unit_system', 'graphics', or 'detail' are provided, saves them
+    immediately as persistent preferences.
+    """
+    unit_system = args.get("unit_system")
+    graphics = args.get("graphics")
+    detail = args.get("detail")
+
+    # If any params provided, save them
+    if unit_system or graphics or detail:
+        save_result = set_weather_preference(args)
+        save_parsed = json.loads(save_result)
+        if save_parsed["status"] == "ok":
+            return json.dumps({
+                "status": "ok",
+                "message": "Weather preferences saved successfully!",
+                "saved": save_parsed["saved"],
+                "next_steps": (
+                    "Your preferences are now stored in config.yaml. "
+                    "Use weather_current(location='...') to get weather with your "
+                    "preferences applied."
+                )
+            })
+        return save_result
+
+    # No params provided — check if preferences exist and show setup guide or current prefs
+    try:
+        from hermes_cli.config import cfg_get, load_config_readonly
+        config = load_config_readonly()
+        weather_section = cfg_get(config, "weather", default={})
+        has_prefs = isinstance(weather_section, dict) and any(
+            k in weather_section for k in ("unit_system", "graphics", "detail")
+        )
+    except Exception:
+        has_prefs = False
+
+    cur_unit = _get_persistent_unit_system()
+    cur_graphics = _get_persistent_graphics()
+    cur_detail = _get_persistent_detail()
+
+    if not has_prefs:
+        return json.dumps({
+            "status": "ok",
+            "setup_required": True,
+            "message": (
+                "First time using weather tools! Please set your preferences:\n\n"
+                "  unit_system: 'c' (Celsius), 'f' (Fahrenheit), 'both' (default), 's' (scientific)\n"
+                "  graphics: 's' (small/plain text), 'm' (medium/ANSI, default), 'l' (large/full graphics)\n"
+                "  detail: 's' (small/one-line), 'm' (medium/default forecast), 'l' (large/JSON)\n\n"
+                "Example:\n"
+                "  weather_set_preference(unit_system='f', graphics='m', detail='m')\n\n"
+                "Or set individually:\n"
+                "  weather_set_preference(unit_system='f')\n"
+                "  weather_set_preference(graphics='s')\n"
+                "  weather_set_preference(detail='l')"
+            ),
+            "current_defaults": {
+                "unit_system": cur_unit,
+                "graphics": cur_graphics,
+                "detail": cur_detail,
+            },
+            "descriptions": {
+                "unit_system": "c=Celsius-only (metric), f=Fahrenheit-only (USCS), both=both units (default), s=scientific",
+                "graphics": "s=small(plain text no ANSI), m=medium(ANSI colors, default), l=large(full graphical output)",
+                "detail": "s=small(one-line format), m=medium(default forecast), l=large(JSON with all details)",
+            }
+        })
+
+    return json.dumps({
+        "status": "ok",
+        "setup_required": False,
+        "message": "Weather preferences are configured.",
+        "current_preferences": {
+            "unit_system": cur_unit,
+            "graphics": cur_graphics,
+            "detail": cur_detail,
+        },
+        "commands": {
+            "change_unit": "weather_set_preference(unit_system='c'|'f'|'both'|'s')",
+            "change_graphics": "weather_set_preference(graphics='s'|'m'|'l')",
+            "change_detail": "weather_set_preference(detail='s'|'m'|'l')",
+            "reset_all": "weather_set_preference(unit_system='both', graphics='m', detail='m')",
+        }
+    })
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -1196,6 +1288,44 @@ WEATHER_GET_PREFERENCE_SCHEMA = {
     }
 }
 
+WEATHER_SETUP_SCHEMA = {
+    "name": "weather_setup",
+    "description": (
+        "First-run setup or reconfiguration for weather preferences. "
+        "If no parameters are provided, returns a setup prompt if preferences "
+        "haven't been set, or shows current preferences if they have. "
+        "If unit_system, graphics, or detail are provided, saves them as "
+        "persistent preferences. "
+        "unit_system: 'c' (Celsius), 'f' (Fahrenheit), 'both' (default), 's' (scientific). "
+        "graphics: 's' (small/plain text), 'm' (medium/ANSI, default), 'l' (large/full graphics). "
+        "detail: 's' (small/one-line), 'm' (medium/default forecast), 'l' (large/JSON). "
+        "All parameters are optional."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "unit_system": {
+                "type": "string",
+                "description": "Persistent temperature unit preference: 'c', 'f', 'both' (default), or 's'.",
+                "default": None,
+                "enum": ["c", "f", "both", "s", None]
+            },
+            "graphics": {
+                "type": "string",
+                "description": "Persistent graphics rendering: 's' (small), 'm' (medium), 'l' (large).",
+                "default": None,
+                "enum": ["s", "m", "l", None]
+            },
+            "detail": {
+                "type": "string",
+                "description": "Persistent detail level: 's' (small), 'm' (medium), 'l' (large).",
+                "default": None,
+                "enum": ["s", "m", "l", None]
+            }
+        },
+    }
+}
+
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -1285,4 +1415,14 @@ registry.register(
     check_fn=lambda: True,
     requires_env=[],
     emoji="ⓘ",
+)
+
+registry.register(
+    name="weather_setup",
+    toolset="web",
+    schema=WEATHER_SETUP_SCHEMA,
+    handler=weather_setup,
+    check_fn=lambda: True,
+    requires_env=[],
+    emoji="🎛",
 )
