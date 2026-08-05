@@ -2950,6 +2950,21 @@ DEFAULT_CONFIG = {
             # start.  Flip to false to let .env / shell exports win locally.
             "override_existing": True,
         },
+        "keyring": {
+            # Master switch.  When false, the OS keyring is never queried.
+            "enabled": False,
+            # Mapping of env-var name to lookup name.  The lookup name
+            # defaults to the env-var name itself when the value is empty or
+            # omitted.  On macOS the account is the current username
+            # (matching security add-generic-password -a "$USER").
+            "env": {},
+            # Seconds to cache resolved values in-process and on disk.
+            # 0 disables caching (every startup hits the keyring).
+            "cache_ttl_seconds": 300,
+            # When True (default False), keyring values overwrite existing
+            # env vars (.env / shell exports) for the same name.
+            "override_existing": False,
+        },
     },
 
     # Paste collapse thresholds (TUI + CLI).

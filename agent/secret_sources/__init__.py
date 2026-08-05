@@ -21,13 +21,13 @@ Currently bundled:
   - ``onepassword`` — 1Password ``op://`` secret references (`op` CLI).
     See ``agent.secret_sources.onepassword`` for the integration and
     ``hermes_cli.onepassword_secrets_cli`` for the user-facing commands.
-
-The bundled set is deliberately closed (policy mirrors memory
-providers): new third-party secret managers ship as standalone plugin
-repos that subclass ``SecretSource`` and register through
-``PluginContext.register_secret_source()`` — they are NOT added to this
-package.  A generic ``command`` source is a possible future exception;
-OS keystores (Keychain/DPAPI/libsecret) are under discussion.
+  - ``command`` — a user-configured POSIX helper that prints KEY=VALUE on
+    stdout (keepassxc-cli, secret-tool, pass, …).  See
+    ``agent.secret_sources.command`` for the integration.
+  - ``keyring`` — the OS-native credential store (macOS Keychain via
+    ``security``, Windows Credential Manager via PowerShell ``cmdkey``,
+    Linux via ``secret-tool``/``pass``).  See
+    ``agent.secret_sources.keyring``.
 """
 
 from agent.secret_sources.base import (  # noqa: F401
