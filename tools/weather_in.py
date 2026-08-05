@@ -71,6 +71,37 @@ _DEFAULT_GRAPHICS = "m"
 _DEFAULT_DETAIL = "m"
 
 
+def _get_current_location() -> str:
+    """Get the user's current location string for weather lookups.
+
+    Attempts to use the location_services module (hermes-location-services
+    tool) to get precise coordinates via CoreLocationCLI on macOS, or
+    IP-based geolocation as a fallback. If the location module is not
+    available or returns an error, falls back to empty string (which
+    wttr.in interprets as auto-detect by IP).
+
+    Returns:
+        A location string suitable for wttr.in, or empty string for
+        IP-based auto-detection.
+    """
+    try:
+        # Try to import location_services module
+        from tools.location_services import _get_location_cached
+
+        location = _get_location_cached()
+        if location and location.get("precise_coords"):
+            # Use precise GPS coordinates for best weather accuracy
+            coords = location["precise_coords"]
+            return coords
+        elif location and location.get("address"):
+            return location["address"]
+    except (ImportError, Exception) as e:
+        logger.debug(f"Location services module not available or error: {e}")
+
+    # Fallback: return empty string for wttr.in IP auto-detection
+    return ""
+
+
 def _get_persistent_unit_system() -> str:
     """Get the persistent default unit system from config.yaml.
 
@@ -435,6 +466,8 @@ def weather_current(args, **kwargs) -> str:
     precipitation, and forecast data in JSON format.
     """
     location = args.get("location", "")
+    if not location:
+        location = _get_current_location()
     fmt = args.get("format", "j1")
     lang = args.get("language", "") or None
     unit_system = _resolve_unit_system(args.get("unit_system"))
@@ -496,6 +529,8 @@ def weather_forecast(args, **kwargs) -> str:
     when format='j1' or 'j2' is specified.
     """
     location = args.get("location", "")
+    if not location:
+        location = _get_current_location()
     fmt = args.get("format", "") or None
     lang = args.get("language", "") or None
     unit_system = _resolve_unit_system(args.get("unit_system"))
@@ -563,6 +598,8 @@ def weather_oneline(args, **kwargs) -> str:
     'm' for ANSI colors (default), 'l' for full graphical.
     """
     location = args.get("location", "")
+    if not location:
+        location = _get_current_location()
     fmt = args.get("format", "3")
     lang = args.get("language", "") or None
     unit_system = _resolve_unit_system(args.get("unit_system"))
@@ -638,6 +675,8 @@ def weather_prometheus(args, **kwargs) -> str:
     Prometheus output includes both Celsius and Fahrenheit metrics.
     """
     location = args.get("location", "")
+    if not location:
+        location = _get_current_location()
 
     url = _build_url(location, fmt="p1")
     result = _fetch_weather(url)
