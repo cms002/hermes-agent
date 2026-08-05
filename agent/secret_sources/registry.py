@@ -20,9 +20,9 @@ Plugins register additional sources via
 ``PluginContext.register_secret_source()`` which lands in
 :func:`register_source`.  In-tree sources are registered lazily by
 :func:`_ensure_builtin_sources` — the set of bundled sources is
-deliberately closed (Bitwarden, and 1Password once it lands); new
-third-party backends ship as standalone plugin repos implementing
-:class:`agent.secret_sources.base.SecretSource`.
+deliberately closed (Bitwarden, 1Password, command, and the OS
+keyring source); new third-party backends ship as standalone plugin
+repos implementing :class:`agent.secret_sources.base.SecretSource`.
 """
 
 from __future__ import annotations
@@ -183,6 +183,13 @@ def _ensure_builtin_sources() -> None:
         register_source(CommandSource())
     except Exception:  # noqa: BLE001 — never block startup
         logger.warning("Failed to register bundled command secret source",
+                       exc_info=True)
+    try:
+        from agent.secret_sources.keyring import KeyringSource
+
+        register_source(KeyringSource())
+    except Exception:  # noqa: BLE001 — never block startup
+        logger.warning("Failed to register bundled keyring secret source",
                        exc_info=True)
 
 
