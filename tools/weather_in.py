@@ -204,28 +204,37 @@ def _resolve_detail(detail: Optional[str]) -> str:
     return _get_persistent_detail()
 
 
-def _resolve_text_format(fmt: Optional[str], detail: str) -> Optional[str]:
+def _resolve_text_format(fmt: Optional[str], detail: str, graphics: str = "m") -> Optional[str]:
     """Resolve the output format for text-based queries.
 
     Maps the detail level to appropriate wttr.in format options:
     - 's' (small): format=1 (minimal one-line) or format=2 (condition + temp)
-    - 'm' (medium): default text output (full ANSI forecast)
-    - 'l' (large): format=j1 (full JSON with all details)
+    - 'm' (medium): default text output (full ANSI forecast table)
+    - 'l' (large): default text output (same as medium, but with full ASCII
+      weather graphics and all available forecast days — large graphics)
+
+    The graphics preference controls visual rendering (plain text vs ANSI),
+    while detail controls how much data wttr.in returns. 'l' detail uses the
+    default text format (full ASCII forecast) with no format= override,
+    which gives the richest visual output. Only 's' detail uses format=1
+    (one-line summary).
 
     Args:
         fmt: Explicit format parameter from the user (takes priority).
         detail: The resolved detail level ('s', 'm', 'l').
+        graphics: The resolved graphics size ('s', 'm', 'l'), used to determine
+                  if plain text (T flag) is requested.
 
     Returns:
         The resolved format string, or None for default text output.
     """
     if fmt:
         return fmt
-    # If no explicit format is provided, use detail to determine format
+    # Small detail: use one-line format
     if detail == "s":
         return "1"  # Minimal one-line format
-    elif detail == "l":
-        return "j1"  # Full JSON with all details
+    # Medium and large detail: use default text output (full ASCII forecast)
+    # 'l' detail with default format gives the full 3-day ASCII weather table
     return None  # Default: full text/ANSI output
 
 
@@ -440,7 +449,7 @@ def weather_current(args, **kwargs) -> str:
         pass
     elif not fmt:
         # No explicit format - use detail to determine format
-        fmt = _resolve_text_format(None, detail)
+        fmt = _resolve_text_format(None, detail, graphics)
 
     wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
     text_flags = _resolve_text_options(graphics) if not fmt or fmt.startswith(("1", "2", "3", "4")) else None
@@ -505,7 +514,7 @@ def weather_forecast(args, **kwargs) -> str:
 
     # If no explicit format given, use detail to determine format
     if not fmt:
-        fmt = _resolve_text_format(None, detail)
+        fmt = _resolve_text_format(None, detail, graphics)
 
     wttr_unit = _resolve_unit_params(unit_system, explicit_unit)
     text_flags = _resolve_text_options(graphics) if not fmt or fmt.startswith(("1", "2", "3", "4")) else None
@@ -707,7 +716,7 @@ def set_weather_preference(args, **kwargs) -> str:
     Supported preferences:
     - unit_system: 'c' (Celsius), 'f' (Fahrenheit), 'both' (default), 's' (scientific)
     - graphics: 's' (small/plain text), 'm' (medium/ANSI, default), 'l' (large/full graphics)
-    - detail: 's' (small/one-line), 'm' (medium/default forecast), 'l' (large/JSON)
+    - detail: 's' (small/one-line), 'm' (medium/default forecast), 'l' (large/full ASCII forecast)
 
     Subsequent weather tool calls that don't specify a parameter will use
     this persistent default. Per-request parameters override these settings.
@@ -779,7 +788,7 @@ def set_weather_preference(args, **kwargs) -> str:
         "saved": saved,
         "unit_system_meaning": "c=Celsius/metric, f=Fahrenheit/USCS, both=both, s=scientific",
         "graphics_meaning": "s=small(plain text), m=medium(ANSI), l=large(full graphics)",
-        "detail_meaning": "s=small(one-line), m=medium(default forecast), l=large(JSON)"
+        "detail_meaning": "s=small(one-line format), m=medium(default forecast), l=large(full ASCII forecast table)"
     })
 
 
@@ -803,7 +812,7 @@ def get_weather_preference(args, **kwargs) -> str:
         "descriptions": {
             "unit_system": "c=Celsius-only (metric), f=Fahrenheit-only (USCS), both=both units (default), s=scientific",
             "graphics": "s=small(plain text no ANSI), m=medium(ANSI colors, default), l=large(full graphical output)",
-            "detail": "s=small(one-line format), m=medium(default forecast), l=large(JSON with all details)",
+            "detail": "s=small(one-line format), m=medium(default forecast), l=large(full ASCII forecast table)",
         },
         "set_command": (
             "Use set_weather_preference(unit_system='c'|'f'|'both'|'s', "
@@ -868,7 +877,7 @@ def weather_setup(args, **kwargs) -> str:
                 "First time using weather tools! Please set your preferences:\n\n"
                 "  unit_system: 'c' (Celsius), 'f' (Fahrenheit), 'both' (default), 's' (scientific)\n"
                 "  graphics: 's' (small/plain text), 'm' (medium/ANSI, default), 'l' (large/full graphics)\n"
-                "  detail: 's' (small/one-line), 'm' (medium/default forecast), 'l' (large/JSON)\n\n"
+                "  detail: 's' (small/one-line), 'm' (medium/default forecast), 'l' (large/full ASCII forecast)\n\n"
                 "Example:\n"
                 "  weather_set_preference(unit_system='f', graphics='m', detail='m')\n\n"
                 "Or set individually:\n"
@@ -884,7 +893,7 @@ def weather_setup(args, **kwargs) -> str:
             "descriptions": {
                 "unit_system": "c=Celsius-only (metric), f=Fahrenheit-only (USCS), both=both units (default), s=scientific",
                 "graphics": "s=small(plain text no ANSI), m=medium(ANSI colors, default), l=large(full graphical output)",
-                "detail": "s=small(one-line format), m=medium(default forecast), l=large(JSON with all details)",
+                "detail": "s=small(one-line format), m=medium(default forecast), l=large(full ASCII forecast table)",
             }
         })
 
@@ -978,7 +987,7 @@ WEATHER_CURRENT_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Amount of information detail: 's' (small, one-line format), "
-                    "'m' (medium, default forecast), 'l' (large, JSON with all details). "
+                    "'m' (medium, default forecast), 'l' (large, full ASCII forecast table). "
                     "If not provided, falls back to the persistent default set via "
                     "'hermes config set weather.detail=<s|m|l>'. "
                     "Ignored when an explicit format is provided."
@@ -1058,7 +1067,7 @@ WEATHER_FORECAST_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Amount of information: 's' (small, one-line), "
-                    "'m' (medium, default forecast), 'l' (large, JSON). "
+                    "'m' (medium, default forecast), 'l' (large, full ASCII forecast table). "
                     "If not provided, falls back to persistent default. "
                     "Ignored when an explicit format is provided."
                 ),
@@ -1266,7 +1275,7 @@ WEATHER_SET_PREFERENCE_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Amount of information detail: 's' (small, one-line format), "
-                    "'m' (medium, default forecast), 'l' (large, JSON)."
+                    "'m' (medium, default forecast), 'l' (large, full ASCII forecast table)."
                 ),
                 "default": "m",
                 "enum": ["s", "m", "l"]
@@ -1298,7 +1307,7 @@ WEATHER_SETUP_SCHEMA = {
         "persistent preferences. "
         "unit_system: 'c' (Celsius), 'f' (Fahrenheit), 'both' (default), 's' (scientific). "
         "graphics: 's' (small/plain text), 'm' (medium/ANSI, default), 'l' (large/full graphics). "
-        "detail: 's' (small/one-line), 'm' (medium/default forecast), 'l' (large/JSON). "
+        "detail: 's' (small/one-line), 'm' (medium/default forecast), 'l' (large/full ASCII forecast). "
         "All parameters are optional."
     ),
     "parameters": {
