@@ -85,6 +85,9 @@ _HERMES_CORE_TOOLS = [
     "computer_use",
     # Email sending via AgentMail or SMTP
     "email_send",
+    # Location services (cross-platform geolocation)
+    "location_get", "location_get_coords", "location_reverse_geocode",
+    "location_get_ip", "location_get_timezone",
 ]
 
 # Webhook events may originate from untrusted third-party content (for example,
