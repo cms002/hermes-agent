@@ -265,7 +265,8 @@ EMAIL_SEND_SCHEMA = {
         "falls back to SMTP using EMAIL_SMTP_HOST/EMAIL_ADDRESS/EMAIL_PASSWORD. "
         "Secrets are resolved from environment variables, Hermes secret scope, "
         "or macOS Keychain. When using AgentMail, the inbox_id parameter selects "
-        "which agent inbox to send from (defaults to your configured inbox)."
+        "which agent inbox to send from (defaults to your configured inbox). "
+        "Sample prompts: Send an email to john@example.com, Email my team about the meeting, Send a quick note to mom, Mail this to support@company.com"
     ),
     "parameters": {
         "type": "object",

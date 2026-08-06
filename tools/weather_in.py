@@ -966,7 +966,8 @@ WEATHER_CURRENT_SCHEMA = {
         "by city name, coordinates, airport code, @domain, or IP address. "
         "No API key required for the public wttr.in service. "
         "Use unit_system='c' for Celsius-only, 'f' for Fahrenheit-only, "
-        "or 'both' (default) for both units."
+        "or 'both' (default) for both units. "
+        "Sample prompts: What's the current weather?, What's the weather in London?, Show me the weather near 43.7,-79.41, Is it raining outside?, Current temperature in Tokyo, Weather in Mountain View CA"
     ),
     "parameters": {
         "type": "object",
@@ -1049,7 +1050,8 @@ WEATHER_FORECAST_SCHEMA = {
         "Returns either formatted text forecast (default) or JSON data "
         "(format='j1' or 'j2') with current conditions, hourly, and daily "
         "forecasts including temperature, precipitation, wind, and astronomy data. "
-        "Use unit_system='c' for Celsius, 'f' for Fahrenheit, or 'both' (default)."
+        "Use unit_system='c' for Celsius, 'f' for Fahrenheit, or 'both' (default). "
+        "Sample prompts: What's the weather forecast for tomorrow?, Show me the 7-day forecast in Seattle, Weather forecast for London this week, Will it rain this weekend?, Forecast for 43.7,-79.41, What's the forecast in Paris?"
     ),
     "parameters": {
         "type": "object",
@@ -1136,7 +1138,8 @@ WEATHER_ONELINE_SCHEMA = {
         "%p (precipitation), %P (pressure), %u (UV index), %e (dew point), "
         "%S (sunrise), %s (sunset), %T (current time), %Z (timezone), etc. "
         "Multiple locations can be passed colon-separated for batch queries. "
-        "Use unit_system='c' for Celsius, 'f' for Fahrenheit, or 'both' (default)."
+        "Use unit_system='c' for Celsius, 'f' for Fahrenheit, or 'both' (default). "
+        "Sample prompts: Give me a one-line weather summary, Weather in London and Paris, Is it sunny in Tokyo?, What temperature is it in Denver?, One-line weather for NYC, Current weather in Berlin"
     ),
     "parameters": {
         "type": "object",
@@ -1198,7 +1201,8 @@ WEATHER_MOON_SCHEMA = {
     "description": (
         "Get moon phase information for a specific date using wttr.in's Moon endpoint. "
         "Returns ANSI display of moon phase and illumination. Date format is YYYY-MM-DD. "
-        "If no date is specified, returns current moon phase."
+        "If no date is specified, returns current moon phase. "
+        "Sample prompts: What phase is the moon tonight?, Moon phase for tonight, What's the moon phase on December 25th?, Is there a full moon?"
     ),
     "parameters": {
         "type": "object",
@@ -1250,7 +1254,8 @@ WEATHER_PROMETHEUS_SCHEMA = {
         "humidity, pressure, precipitation, UV index, cloud cover, and astronomy "
         "data (sunrise/sunset, moon phase, moon illumination). Suitable for "
         "monitoring and time-series database integration. Prometheus output "
-        "includes both Celsius and Fahrenheit metrics."
+        "includes both Celsius and Fahrenheit metrics. "
+        "Sample prompts: Give me weather as Prometheus metrics, Export weather data to Prometheus, Show me weather metrics for monitoring"
     ),
     "parameters": {
         "type": "object",
@@ -1286,7 +1291,8 @@ WEATHER_SET_PREFERENCE_SCHEMA = {
         "Set persistent weather preferences in config.yaml. These preferences "
         "are used for all subsequent weather tool calls that don't explicitly "
         "specify the corresponding parameter. Per-request parameters override "
-        "these persistent settings for that single call."
+        "these persistent settings for that single call. "
+        "Sample prompts: Set my weather to Celsius, Use Fahrenheit for weather, Set weather to use scientific units, Change weather detail to large, Use plain text weather output"
     ),
     "parameters": {
         "type": "object",
@@ -1328,7 +1334,8 @@ WEATHER_GET_PREFERENCE_SCHEMA = {
     "description": (
         "Get all current persistent weather preferences from config.yaml. "
         "Returns the saved unit_system, graphics, and detail preferences "
-        "or their defaults if none have been set."
+        "or their defaults if none have been set. "
+        "Sample prompts: What are my weather preferences?, Show current weather settings, Check weather detail level"
     ),
     "parameters": {
         "type": "object",
@@ -1347,7 +1354,8 @@ WEATHER_SETUP_SCHEMA = {
         "unit_system: 'c' (Celsius), 'f' (Fahrenheit), 'both' (default), 's' (scientific). "
         "graphics: 's' (small/plain text), 'm' (medium/ANSI, default), 'l' (large/full graphics). "
         "detail: 's' (small/one-line), 'm' (medium/default forecast), 'l' (large/full ASCII forecast). "
-        "All parameters are optional."
+        "All parameters are optional. "
+        "Sample prompts: Set up weather preferences, Configure weather defaults, Weather setup wizard"
     ),
     "parameters": {
         "type": "object",

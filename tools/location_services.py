@@ -571,7 +571,8 @@ LOCATION_GET_SCHEMA = {
         "Get the user's current geographic location with full address details. "
         "Uses CoreLocationCLI on macOS for precise GPS, or IP-based geolocation "
         "as a cross-platform fallback. Location is cached after first detection. "
-        "Returns coordinates, address, POI, city, state, country, timezone, and IP info."
+        "Returns coordinates, address, POI, city, state, country, timezone, and IP info. "
+        "Sample prompts: Where am I right now?, What's my current location?, Am I in Mountain View?, What city am I in?"
     ),
     "parameters": {
         "type": "object",
@@ -590,7 +591,8 @@ LOCATION_GET_COORDS_SCHEMA = {
     "description": (
         "Get the user's current GPS latitude and longitude coordinates. "
         "Uses CoreLocationCLI on macOS (precise GPS), or ipinfo.io for "
-        "approximate coordinates based on IP address. Includes timezone if available."
+        "approximate coordinates based on IP address. Includes timezone if available. "
+        "Sample prompts: What are my GPS coordinates?, My latitude and longitude, Where am I on the map?, Current GPS position"
     ),
     "parameters": {
         "type": "object",
@@ -609,7 +611,8 @@ LOCATION_REVERSE_GEOCODE_SCHEMA = {
     "description": (
         "Reverse geocode a latitude/longitude pair to a human-readable address. "
         "Uses Nominatim (OpenStreetMap). If no coordinates are provided, "
-        "uses the detected current location."
+        "uses the detected current location. "
+        "Sample prompts: What address is 43.7,-79.41?, Reverse geocode these coordinates, What city is at 40.7128,-74.0060?, Find the address for 51.5074,-0.1278"
     ),
     "parameters": {
         "type": "object",
@@ -631,7 +634,8 @@ LOCATION_GET_IP_SCHEMA = {
     "description": (
         "Get the user's public IP address and ISP information. "
         "Uses ipify.org as the primary service with fallbacks. "
-        "Also attempts to resolve ISP and approximate location from IP."
+        "Also attempts to resolve ISP and approximate location from IP. "
+        "Sample prompts: What's my public IP?, What ISP am I using?, My IP address, Show my network info"
     ),
     "parameters": {
         "type": "object",
@@ -644,7 +648,8 @@ LOCATION_GET_TIMEZONE_SCHEMA = {
     "description": (
         "Get the user's current timezone. Uses CoreLocationCLI on macOS "
         "for precise timezone detection, or ipinfo.io as a fallback. "
-        "Returns timezone name, UTC offset, and current time."
+        "Returns timezone name, UTC offset, and current time. "
+        "Sample prompts: What timezone am I in?, What time is it?, Current timezone, What's my UTC offset?"
     ),
     "parameters": {
         "type": "object",
