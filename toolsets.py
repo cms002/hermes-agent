@@ -83,6 +83,16 @@ _HERMES_CORE_TOOLS = [
     "kanban_attach", "kanban_attach_url", "kanban_attachments",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
+    # Email sending via AgentMail or SMTP
+    "email_send",
+    # Weather information via wttr.in
+    "weather_current", "weather_forecast", "weather_oneline",
+    "weather_moon", "weather_prometheus", "weather_help",
+    "weather_set_preference", "weather_get_preference",
+    "weather_setup",
+    # Location services (macOS, cross-platform)
+    "location_get", "location_get_coords", "location_reverse_geocode",
+    "location_get_ip", "location_get_timezone",
 ]
 
 # Webhook events may originate from untrusted third-party content (for example,
@@ -103,7 +113,7 @@ TOOLSETS = {
     "web": {
         "description": "Web research and content extraction tools",
         "tools": ["web_search", "web_extract"],
-        "includes": []  # No other toolsets included
+        "includes": []
     },
     
     "search": {
@@ -181,6 +191,12 @@ TOOLSETS = {
             "user's cursor or keyboard focus. Works with any tool-capable model."
         ),
         "tools": ["computer_use"],
+        "includes": []
+    },
+
+    "email": {
+        "description": "Send emails via AgentMail API or SMTP",
+        "tools": ["email_send"],
         "includes": []
     },
 
@@ -455,7 +471,16 @@ TOOLSETS = {
             "cronjob",
             # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
             "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
-
+            # Weather information via wttr.in
+            "weather_current", "weather_forecast", "weather_oneline",
+            "weather_moon", "weather_prometheus", "weather_help",
+            "weather_set_preference", "weather_get_preference",
+            "weather_setup",
+            # Location services
+            "location_get", "location_get_coords", "location_reverse_geocode",
+            "location_get_ip", "location_get_timezone",
+            # Email sending via AgentMail or SMTP
+            "email_send",
         ],
         "includes": []
     },
